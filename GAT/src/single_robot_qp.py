@@ -1,5 +1,5 @@
 """
-Faz 1.3: Tek robot, engelsiz — QP ile optimal trajectory planlama.
+Faz 1.3-1.5: Tek robot, engelsiz — QP ile optimal trajectory planlama.
 
 Makaledeki Denklem (7-8)'in basitlestirilmis hali:
   - Engel yok, binary yok, sadece convex QP
@@ -14,6 +14,10 @@ Kisitlar:
   p(k+1) = p(k) + tau*v(k) + 0.5*tau^2*u(k)   (dinamik - pozisyon)
   v(k+1) = v(k) + tau*u(k)                      (dinamik - hiz)
   p(0) = p_init, v(0) = v_init                  (baslangic durumu)
+  px_min <= px(k) <= px_max                      (ortam siniri, Denklem 2)
+  py_min <= py(k) <= py_max
+  -vmax <= vx(k), vy(k) <= vmax                 (hiz limiti)
+  -amax <= ux(k), uy(k) <= amax                 (ivme limiti)
 """
 
 import numpy as np
@@ -24,6 +28,7 @@ from environment import Environment
 
 
 def solve_single_robot_qp(p_init, v_init, p_goal, H, tau,
+                           bounds=None, vmax=None, amax=None,
                            w_pt=10.0, w_p=1.0, w_u=1.0):
     """Tek robot icin optimal trajectory hesapla (QP).
 
@@ -33,6 +38,9 @@ def solve_single_robot_qp(p_init, v_init, p_goal, H, tau,
         p_goal: hedef pozisyonu (px_g, py_g)
         H: kontrol ufku (horizon length)
         tau: sampling period (s)
+        bounds: (px_min, px_max, py_min, py_max) ortam siniri — None ise sinirsiz
+        vmax: maksimum hiz (m/s) — None ise sinirsiz
+        amax: maksimum ivme (m/s^2) — None ise sinirsiz
         w_pt: terminal cost weight
         w_p: tracking cost weight
         w_u: effort cost weight
@@ -45,13 +53,27 @@ def solve_single_robot_qp(p_init, v_init, p_goal, H, tau,
     model = gp.Model("single_robot_qp")
     model.setParam('OutputFlag', 0)  # GUROBI ciktisini sustur
 
-    # --- Degiskenler ---
-    # Pozisyon: p[k, dim] for k=0..H, dim=0(x),1(y)
-    p = model.addMVar((H + 1, 2), lb=-GRB.INFINITY, name="p")
+    # --- Degiskenler (Denklem 2'deki bound'lar burada) ---
+    # Pozisyon: p[k, dim] for k=0..H
+    if bounds is not None:
+        px_min, px_max, py_min, py_max = bounds
+        p_lb = np.array([px_min, py_min])
+        p_ub = np.array([px_max, py_max])
+        p = model.addMVar((H + 1, 2), lb=p_lb, ub=p_ub, name="p")
+    else:
+        p = model.addMVar((H + 1, 2), lb=-GRB.INFINITY, name="p")
+
     # Hiz: v[k, dim] for k=0..H
-    v = model.addMVar((H + 1, 2), lb=-GRB.INFINITY, name="v")
+    if vmax is not None:
+        v = model.addMVar((H + 1, 2), lb=-vmax, ub=vmax, name="v")
+    else:
+        v = model.addMVar((H + 1, 2), lb=-GRB.INFINITY, name="v")
+
     # Kontrol (ivme): u[k, dim] for k=0..H-1
-    u = model.addMVar((H, 2), lb=-GRB.INFINITY, name="u")
+    if amax is not None:
+        u = model.addMVar((H, 2), lb=-amax, ub=amax, name="u")
+    else:
+        u = model.addMVar((H, 2), lb=-GRB.INFINITY, name="u")
 
     # --- Kisitlar ---
     # Baslangic durumu: p(0) = p_init, v(0) = v_init
@@ -100,7 +122,7 @@ def solve_single_robot_qp(p_init, v_init, p_goal, H, tau,
     return p_traj, v_traj, u_traj
 
 
-# --- Demo ---
+# --- Demo: bound'lu vs bound'suz karsilastirma ---
 if __name__ == "__main__":
     # Parametreler (makaledeki degerler, Section V-A)
     tau = 0.2       # sampling period (s)
@@ -109,50 +131,67 @@ if __name__ == "__main__":
     w_p = 1.0       # tracking cost weight
     w_u = 1.0       # effort cost weight
 
+    env_bounds = (0.0, 4.0, 0.0, 3.0)
+    vmax = 0.5      # m/s  (makaledeki deger)
+    amax = 0.5      # m/s^2 (makaledeki deger)
+
     p_init = np.array([0.5, 0.5])
     v_init = np.array([0.0, 0.0])
     p_goal = np.array([3.5, 2.5])
 
-    # QP coz
-    p_traj, v_traj, u_traj = solve_single_robot_qp(
-        p_init, v_init, p_goal, H, tau, w_pt, w_p, w_u
+    # Iki durum: bound'suz ve bound'lu
+    p1, v1, u1 = solve_single_robot_qp(
+        p_init, v_init, p_goal, H, tau, w_pt=w_pt, w_p=w_p, w_u=w_u
+    )
+    p2, v2, u2 = solve_single_robot_qp(
+        p_init, v_init, p_goal, H, tau,
+        bounds=env_bounds, vmax=vmax, amax=amax,
+        w_pt=w_pt, w_p=w_p, w_u=w_u
     )
 
     # --- Gorsellestirme ---
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+    time = np.arange(H + 1) * tau
+    time_u = np.arange(H) * tau
 
     # 1) Trajectory
     ax = axes[0]
-    env = Environment(bounds=(0.0, 4.0, 0.0, 3.0))
+    env = Environment(bounds=env_bounds)
     env.add_robot(position=p_init, goal=p_goal)
     env.plot(ax=ax)
-    ax.plot(p_traj[:, 0], p_traj[:, 1], '-o', color='tab:blue',
-            markersize=3, linewidth=2, alpha=0.7, label='QP trajectory')
-    ax.set_title('Optimal Trajectory')
+    ax.plot(p1[:, 0], p1[:, 1], '-o', color='tab:blue',
+            markersize=3, linewidth=2, alpha=0.5, label='unconstrained')
+    ax.plot(p2[:, 0], p2[:, 1], '-s', color='tab:red',
+            markersize=3, linewidth=2, alpha=0.7, label='constrained')
+    ax.set_title('Trajectory Comparison')
     ax.legend()
 
     # 2) Speed profile
     ax = axes[1]
-    speeds = np.linalg.norm(v_traj, axis=1)
-    time = np.arange(H + 1) * tau
-    ax.plot(time, speeds, '-o', markersize=3)
+    ax.plot(time, np.linalg.norm(v1, axis=1), '-o', markersize=3,
+            color='tab:blue', alpha=0.5, label='unconstrained')
+    ax.plot(time, np.linalg.norm(v2, axis=1), '-s', markersize=3,
+            color='tab:red', label='constrained')
+    ax.axhline(y=vmax, color='gray', linestyle='--', label=f'vmax={vmax}')
     ax.set_xlabel('time (s)')
     ax.set_ylabel('speed (m/s)')
     ax.set_title('Speed Profile')
+    ax.legend()
     ax.grid(True, alpha=0.3)
 
-    # 3) Control inputs
+    # 3) Control inputs (constrained only)
     ax = axes[2]
-    time_u = np.arange(H) * tau
-    ax.plot(time_u, u_traj[:, 0], '-o', markersize=3, label='ux')
-    ax.plot(time_u, u_traj[:, 1], '-o', markersize=3, label='uy')
+    ax.plot(time_u, u2[:, 0], '-o', markersize=3, label='ux')
+    ax.plot(time_u, u2[:, 1], '-o', markersize=3, label='uy')
+    ax.axhline(y=amax, color='gray', linestyle='--', label=f'amax={amax}')
+    ax.axhline(y=-amax, color='gray', linestyle='--')
     ax.set_xlabel('time (s)')
     ax.set_ylabel('acceleration (m/s^2)')
-    ax.set_title('Control Inputs')
+    ax.set_title('Control Inputs (constrained)')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig('../faz1_3_qp_trajectory.png', dpi=150)
+    plt.savefig('../faz1_5_bounded_qp.png', dpi=150)
     plt.show()
-    print("QP trajectory saved:/faz1_3_qp_trajectory.png")
+    print("Bounded QP saved: faz1_5_bounded_qp.png")
