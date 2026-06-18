@@ -3,3 +3,4 @@ matplotlib
 gurobipy
 torch
 torch-geometric
+scipy
