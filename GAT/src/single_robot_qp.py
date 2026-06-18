@@ -192,6 +192,6 @@ if __name__ == "__main__":
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig('../faz1_5_bounded_qp.png', dpi=150)
+    plt.savefig('../plots/faz1_5_bounded_qp.png', dpi=150)
     plt.show()
-    print("Bounded QP saved: faz1_5_bounded_qp.png")
+    print("Bounded QP saved: plots/faz1_5_bounded_qp.png")

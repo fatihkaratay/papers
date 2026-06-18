@@ -200,6 +200,6 @@ if __name__ == "__main__":
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig('../faz2_micp_trajectory.png', dpi=150)
+    plt.savefig('../plots/faz2_micp_trajectory.png', dpi=150)
     plt.show()
-    print("MICP trajectory saved: faz2_micp_trajectory.png")
+    print("MICP trajectory saved: plots/faz2_micp_trajectory.png")

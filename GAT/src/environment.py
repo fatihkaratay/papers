@@ -199,6 +199,6 @@ if __name__ == "__main__":
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig('faz1_2_dynamics.png', dpi=150)
+    plt.savefig('../plots/faz1_2_dynamics.png', dpi=150)
     plt.show()
-    print("Dynamics demo saved: faz1_2_dynamics.png")
+    print("Dynamics demo saved: plots/faz1_2_dynamics.png")
