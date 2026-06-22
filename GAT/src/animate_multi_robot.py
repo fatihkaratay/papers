@@ -218,33 +218,62 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
     plt.show()
 
 
-if __name__ == "__main__":
-    tau = 0.2
-    H = 20
-    env_bounds = (-3.0, 1.0, -0.5, 2.5)
-    vmax = 0.5
-    amax = 0.5
-    dmin = 0.2
-    dprox = 5.0
-
-    env = Environment(bounds=env_bounds)
-    env.add_obstacle(center=(-1.0, 1.0), half_length=0.3, half_width=0.2)
-
-    # Robot 1: soldan saga, Robot 2: sagdan sola
-    env.add_robot(position=(-2.5, 1.0), goal=(0.5, 1.0))
-    env.add_robot(position=(0.5, 1.0), goal=(-2.5, 1.0))
-
+def run_scenario(name, env, H, tau, vmax, amax, dmin, dprox):
+    """Senaryo coz ve animasyonu goster."""
     robots_p = [r.position.copy() for r in env.robots]
     robots_v = [r.velocity.copy() for r in env.robots]
     robots_goal = [r.goal.copy() for r in env.robots]
 
+    print(f"\n=== {name} ===")
+    print(f"Robots: {len(env.robots)}, Obstacles: {len(env.obstacles)}")
     print("Solving multi-robot MICP...")
+
     p_trajs, v_trajs, u_trajs, edges = solve_multi_robot_micp(
         robots_p, robots_v, robots_goal,
-        env.obstacles, H, tau, env_bounds,
+        env.obstacles, H, tau, env.bounds,
         vmax, amax, dmin, dprox
     )
     print(f"Robot-robot edges: {edges}")
     print("Launching animation...")
 
     animate_multi_robot(env, p_trajs, v_trajs, u_trajs, edges, tau, dmin)
+
+
+if __name__ == "__main__":
+    import sys
+
+    tau = 0.2
+    H = 50
+    vmax = 0.5
+    amax = 0.5
+    dmin = 0.2
+    dprox = 5.0
+
+    # Hangi senaryoyu calistiracagiz?
+    scenario = sys.argv[1] if len(sys.argv) > 1 else "3r2o"
+
+    if scenario == "2r1o":
+        # --- Senaryo A: 2 robot + 1 engel (karsidan karsilasma) ---
+        env = Environment(bounds=(-3.0, 1.0, -0.5, 2.5))
+        env.add_obstacle(center=(-1.0, 1.0), half_length=0.3, half_width=0.2)
+        env.add_robot(position=(-2.5, 1.0), goal=(0.5, 1.0))
+        env.add_robot(position=(0.5, 1.0), goal=(-2.5, 1.0))
+        run_scenario("2 Robot + 1 Engel", env, H, tau, vmax, amax, dmin, dprox)
+
+    elif scenario == "3r2o":
+        # --- Senaryo B: 3 robot + 2 engel (capraz gecis) ---
+        env = Environment(bounds=(-3.0, 3.0, -1.0, 3.0))
+        env.add_obstacle(center=(-0.5, 1.0), half_length=0.35, half_width=0.2)
+        env.add_obstacle(center=(0.8, 1.8), half_length=0.25, half_width=0.2,
+                         angle=np.radians(30))
+        # Robot 1: sol-alt → sag-ust
+        env.add_robot(position=(-2.5, 0.0), goal=(2.5, 2.5))
+        # Robot 2: sag-alt → sol-ust
+        env.add_robot(position=(2.5, 0.0), goal=(-2.5, 2.5))
+        # Robot 3: sol-ust → sag-alt (digerlerini keser)
+        env.add_robot(position=(-2.0, 2.5), goal=(2.0, 0.0))
+        run_scenario("3 Robot + 2 Engel", env, H, tau, vmax, amax, dmin, dprox)
+
+    else:
+        print(f"Unknown scenario: {scenario}")
+        print("Usage: python animate_multi_robot.py [2r1o|3r2o]")
