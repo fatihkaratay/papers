@@ -184,7 +184,17 @@ def solve_multi_robot_micp(robots_p, robots_v, robots_goal,
     v_trajs = [v[i].X for i in range(NR)]
     u_trajs = [u[i].X for i in range(NR)]
 
-    return p_trajs, v_trajs, u_trajs, robot_edges
+    # Binary cozumleri topla
+    b_obs_sol = {}
+    for i in range(NR):
+        for o_idx in range(n_obs):
+            b_obs_sol[i, o_idx] = np.round(b_obs[i, o_idx].X).astype(int)
+
+    b_rob_sol = {}
+    for (i, j) in robot_edges:
+        b_rob_sol[i, j] = np.round(b_rob[i, j].X).astype(int)
+
+    return p_trajs, v_trajs, u_trajs, robot_edges, b_obs_sol, b_rob_sol
 
 
 # --- Demo: 2 robot + 1 engel ---
@@ -212,11 +222,12 @@ if __name__ == "__main__":
     print(f"Robots: {len(env.robots)}, Obstacles: {len(env.obstacles)}")
     print("Solving multi-robot MICP...")
 
-    p_trajs, v_trajs, u_trajs, edges = solve_multi_robot_micp(
-        robots_p, robots_v, robots_goal,
-        env.obstacles, H, tau, env_bounds,
-        vmax, amax, dmin, dprox
-    )
+    p_trajs, v_trajs, u_trajs, edges, b_obs_sol, b_rob_sol = \
+        solve_multi_robot_micp(
+            robots_p, robots_v, robots_goal,
+            env.obstacles, H, tau, env_bounds,
+            vmax, amax, dmin, dprox
+        )
 
     print(f"Robot-robot edges: {edges}")
 
