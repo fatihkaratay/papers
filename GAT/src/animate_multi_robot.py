@@ -228,7 +228,7 @@ def run_scenario(name, env, H, tau, vmax, amax, dmin, dprox):
     print(f"Robots: {len(env.robots)}, Obstacles: {len(env.obstacles)}")
     print("Solving multi-robot MICP...")
 
-    p_trajs, v_trajs, u_trajs, edges = solve_multi_robot_micp(
+    p_trajs, v_trajs, u_trajs, edges, _, _ = solve_multi_robot_micp(
         robots_p, robots_v, robots_goal,
         env.obstacles, H, tau, env.bounds,
         vmax, amax, dmin, dprox
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     import sys
 
     tau = 0.2
-    H = 50
+    H = 20
     vmax = 0.5
     amax = 0.5
     dmin = 0.2

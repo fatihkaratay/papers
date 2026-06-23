@@ -84,7 +84,7 @@ def run_benchmark():
 
         t0 = time.time()
         try:
-            p_trajs, v_trajs, u_trajs, edges = solve_multi_robot_micp(
+            p_trajs, v_trajs, u_trajs, edges, _, _ = solve_multi_robot_micp(
                 robots_p, robots_v, robots_goal,
                 env.obstacles, H, tau, env.bounds,
                 vmax, amax, dmin, dprox
