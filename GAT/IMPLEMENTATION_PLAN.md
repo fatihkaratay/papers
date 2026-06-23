@@ -66,9 +66,9 @@ Birden fazla robotun birbirleriyle ve engellerle çarpışmadan navigasyon yapma
 
 GAT eğitimi için dataset oluşturma.
 
-- [ ] **4.1** Rastgele senaryo üretici yaz: N robot, M engel, rastgele başlangıç/hedef pozisyonları
-- [ ] **4.2** Her senaryo için GUROBI ile MICP çöz, binary çözümleri topla
-- [ ] **4.3** Binary çözüm refinement: ill-posed durumu düzelt (bir constraint zaten sağlanıyorsa binary'yi 0 yap)
+- [x] **4.1** Rastgele senaryo üretici yaz: N robot, M engel, rastgele başlangıç/hedef pozisyonları
+- [x] **4.2** Her senaryo için GUROBI ile MICP çöz, binary çözümleri topla
+- [x] **4.3** Binary çözüm refinement: ill-posed durumu düzelt (bir constraint zaten sağlanıyorsa binary'yi 0 yap)
 - [ ] **4.4** Dataset formatı: (graph, node features, edge binary labels)
 - [ ] **4.5** 2-5 robot ile yeterli sayıda veri üret (~5000-10000 başlangıç için yeterli)
 - [ ] **4.6** Train/validation split (%90/%10)
