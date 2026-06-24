@@ -1,11 +1,12 @@
 """
-Faz 4.2-4.3: MICP coz, binary cozumleri topla ve refine et.
+Faz 4.2-4.4: MICP coz, binary cozumleri topla, refine et, graf formatina cevir.
 
 Akis:
   1. scenario_generator ile rastgele senaryo uret
   2. solve_multi_robot_micp ile MICP coz
   3. Binary refinement: ill-posed binary'leri duzelt
-  4. Tum sonuclari pickle ile diske yaz
+  4. Graf formatina cevir: node features + edge index + edge labels
+  5. Tum sonuclari pickle ile diske yaz
 
 Refinement neden gerekli?
   GUROBI bir binary'yi b=1 (relaxed) verebilir, ama o kisit zaten
@@ -118,6 +119,125 @@ def refine_rob_binaries(b_rob_sol, p_trajs, robot_edges, dmin):
         b_refined[i, j] = b
 
     return b_refined, total_flipped, total_checked
+
+
+def sample_to_graph(sample):
+    """Raw sample'i GAT icin graf formatina cevir.
+
+    Heterogeneous graf yapisi (Definition 3):
+      Node tipleri:
+        - robot:    feature = [px, py, gx, gy]           (4D)
+        - obstacle: feature = [cx, cy, angle, L, W]      (5D)
+
+      Edge tipleri (binary tahmin gerektiren):
+        - RO: robot -> obstacle (her robot-engel cifti)
+        - RR: robot -> robot    (proximity-based)
+
+      Edge tipleri (sadece bilgi akisi, binary yok):
+        - OR: obstacle -> robot (RO'nun tersi)
+        - OO: obstacle -> obstacle (tum engel ciftleri)
+
+    Her edge'in label'i: binary vektor, shape (H*4,)
+      H zaman adimi x 4 yon = GAT'in o edge icin tahmin edecegi binary'ler.
+
+    Returns:
+        graph: dict with keys:
+          - node_feat_robot:    (NR, 4) float
+          - node_feat_obstacle: (NO, 5) float
+          - edge_index_RO:      (2, NR*NO) int — [src_robot, dst_obstacle]
+          - edge_index_RR:      (2, n_rr_edges) int — [src_robot, dst_robot]
+          - edge_index_OR:      (2, NR*NO) int — bilgi akisi
+          - edge_index_OO:      (2, NO*(NO-1)) int — bilgi akisi
+          - edge_labels_RO:     (NR*NO, H*4) float — binary labels
+          - edge_labels_RR:     (n_rr_edges, H*4) float — binary labels
+          - H:                  int — horizon length
+    """
+    NR = sample['n_robots']
+    NO = sample['n_obstacles']
+
+    # === Node features ===
+    # Robot: [px, py, gx, gy]
+    robot_feats = np.zeros((NR, 4))
+    for i in range(NR):
+        robot_feats[i, :2] = sample['robots_p'][i]
+        robot_feats[i, 2:] = sample['robots_goal'][i]
+
+    # Obstacle: [cx, cy, angle, L, W]
+    obs_feats = np.zeros((NO, 5))
+    for o in range(NO):
+        od = sample['obstacles'][o]
+        obs_feats[o] = [od['center'][0], od['center'][1],
+                        od['angle'], od['half_length'], od['half_width']]
+
+    # === Edge index + labels: Robot-Obstacle (RO) ===
+    # Her robot-engel cifti bir edge. Toplam NR*NO edge.
+    # Node indexleme: robotlar 0..NR-1, engeller NR..NR+NO-1
+    ro_src = []  # robot index (0..NR-1)
+    ro_dst = []  # obstacle index (0..NO-1)
+    ro_labels = []
+    for entry in sample['b_obs']:
+        ro_src.append(entry['robot'])
+        ro_dst.append(entry['obstacle'])
+        # (H, 4) -> (H*4,) flatten
+        ro_labels.append(entry['binaries'].flatten())
+
+    edge_index_RO = np.array([ro_src, ro_dst], dtype=int)  # (2, NR*NO)
+    edge_labels_RO = np.array(ro_labels, dtype=float)       # (NR*NO, H*4)
+
+    # === Edge index + labels: Robot-Robot (RR) ===
+    rr_src = []
+    rr_dst = []
+    rr_labels = []
+    for entry in sample['b_rob']:
+        # Bidirectional: (i,j) ve (j,i) — ayni binary'ler
+        rr_src.append(entry['robot_i'])
+        rr_dst.append(entry['robot_j'])
+        rr_labels.append(entry['binaries'].flatten())
+
+    if rr_src:
+        edge_index_RR = np.array([rr_src, rr_dst], dtype=int)
+        edge_labels_RR = np.array(rr_labels, dtype=float)
+    else:
+        edge_index_RR = np.zeros((2, 0), dtype=int)
+        edge_labels_RR = np.zeros((0, sample['b_obs'][0]['binaries'].size), dtype=float)
+
+    # === Bilgi akisi edge'leri (label yok) ===
+    # OR: obstacle -> robot (RO'nun tersi)
+    or_src = []
+    or_dst = []
+    for o in range(NO):
+        for i in range(NR):
+            or_src.append(o)
+            or_dst.append(i)
+    edge_index_OR = np.array([or_src, or_dst], dtype=int)
+
+    # OO: obstacle -> obstacle (tum ciftler)
+    oo_src = []
+    oo_dst = []
+    for o1 in range(NO):
+        for o2 in range(NO):
+            if o1 != o2:
+                oo_src.append(o1)
+                oo_dst.append(o2)
+    if oo_src:
+        edge_index_OO = np.array([oo_src, oo_dst], dtype=int)
+    else:
+        edge_index_OO = np.zeros((2, 0), dtype=int)
+
+    H = sample['b_obs'][0]['binaries'].shape[0]
+
+    graph = {
+        'node_feat_robot': robot_feats,
+        'node_feat_obstacle': obs_feats,
+        'edge_index_RO': edge_index_RO,
+        'edge_index_RR': edge_index_RR,
+        'edge_index_OR': edge_index_OR,
+        'edge_index_OO': edge_index_OO,
+        'edge_labels_RO': edge_labels_RO,
+        'edge_labels_RR': edge_labels_RR,
+        'H': H,
+    }
+    return graph
 
 
 def solve_and_collect(env, H, tau, vmax, amax, dmin, dprox, M=100.0):
@@ -324,13 +444,41 @@ if __name__ == "__main__":
                   f"1->0 cevirildi "
                   f"({100*total_rob_flipped/max(total_rob_checked,1):.1f}%)")
 
-        # Bir sample detayi
+        # Bir sample'i graf formatina cevir ve goster
         s = dataset[0]
-        print(f"\n=== Ornek sample (seed={s['seed']}) ===")
-        print(f"  Robotlar: {s['n_robots']}, Engeller: {s['n_obstacles']}")
-        print(f"  Robot-robot edges: {s['robot_edges']}")
-        print(f"  Ornek binary (robot0-obs0, ilk 5 adim):")
-        print(f"    {s['b_obs'][0]['binaries'][:5]}")
-        r = s['refinement']
-        print(f"  Refinement: {r['obs_flipped']}+{r['rob_flipped']} "
-              f"binary cevirildi")
+        g = sample_to_graph(s)
+        print(f"\n=== Graf Formati (seed={s['seed']}) ===")
+        print(f"  node_feat_robot:    shape {g['node_feat_robot'].shape}")
+        print(f"  node_feat_obstacle: shape {g['node_feat_obstacle'].shape}")
+        print(f"  edge_index_RO:      shape {g['edge_index_RO'].shape}")
+        print(f"  edge_index_RR:      shape {g['edge_index_RR'].shape}")
+        print(f"  edge_index_OR:      shape {g['edge_index_OR'].shape}")
+        print(f"  edge_index_OO:      shape {g['edge_index_OO'].shape}")
+        print(f"  edge_labels_RO:     shape {g['edge_labels_RO'].shape}")
+        print(f"  edge_labels_RR:     shape {g['edge_labels_RR'].shape}")
+        print(f"  H = {g['H']}")
+
+        # Label dagilimi
+        ro_ones = g['edge_labels_RO'].sum()
+        ro_total = g['edge_labels_RO'].size
+        print(f"\n  RO label dagilimi: "
+              f"{int(ro_ones)} ones / {ro_total} total "
+              f"({100*ro_ones/max(ro_total,1):.1f}% ones)")
+        if g['edge_labels_RR'].size > 0:
+            rr_ones = g['edge_labels_RR'].sum()
+            rr_total = g['edge_labels_RR'].size
+            print(f"  RR label dagilimi: "
+                  f"{int(rr_ones)} ones / {rr_total} total "
+                  f"({100*rr_ones/max(rr_total,1):.1f}% ones)")
+
+        # Ornek robot ve engel feature'lari
+        print(f"\n  Robot features (ilk 2):")
+        for i in range(min(2, g['node_feat_robot'].shape[0])):
+            f = g['node_feat_robot'][i]
+            print(f"    R{i}: pos=({f[0]:.2f},{f[1]:.2f}) "
+                  f"goal=({f[2]:.2f},{f[3]:.2f})")
+        print(f"  Obstacle features (ilk 2):")
+        for o in range(min(2, g['node_feat_obstacle'].shape[0])):
+            f = g['node_feat_obstacle'][o]
+            print(f"    O{o}: center=({f[0]:.2f},{f[1]:.2f}) "
+                  f"angle={np.degrees(f[2]):.0f}deg L={f[3]:.2f} W={f[4]:.2f}")

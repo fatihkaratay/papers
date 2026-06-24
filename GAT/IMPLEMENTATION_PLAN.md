@@ -14,7 +14,7 @@ Bu fazda kod yazmıyoruz. Sadece problem uzayını ve kavramları anlıyoruz.
 - [x] **0.3** Neden "Convex"? Binary değişkenler sabitlenince kalan problem quadratic cost + linear constraints = convex
 - [x] **0.4** Neden Graph Attention Network? Robotlar ve engeller arası ilişkiler doğal olarak bir graf oluşturuyor, GAT bu yapıyı öğrenebiliyor
 - [x] **0.5** Framework'ün büyük resmi: Offline (GAT eğit) → Online (GAT ile binary tahmin et → convex problemi çöz)
-- **Notlar:** `docs/faz0_kavramlar.md` dosyasında detaylı açıklamalar mevcut.
+- **Notlar:** `plots/faz0_kavramlar.md` dosyasında detaylı açıklamalar mevcut.
 
 ---
 
@@ -69,7 +69,7 @@ GAT eğitimi için dataset oluşturma.
 - [x] **4.1** Rastgele senaryo üretici yaz: N robot, M engel, rastgele başlangıç/hedef pozisyonları
 - [x] **4.2** Her senaryo için GUROBI ile MICP çöz, binary çözümleri topla
 - [x] **4.3** Binary çözüm refinement: ill-posed durumu düzelt (bir constraint zaten sağlanıyorsa binary'yi 0 yap)
-- [ ] **4.4** Dataset formatı: (graph, node features, edge binary labels)
+- [x] **4.4** Dataset formatı: (graph, node features, edge binary labels)
 - [ ] **4.5** 2-5 robot ile yeterli sayıda veri üret (~5000-10000 başlangıç için yeterli)
 - [ ] **4.6** Train/validation split (%90/%10)
 
