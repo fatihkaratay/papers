@@ -70,8 +70,8 @@ GAT eğitimi için dataset oluşturma.
 - [x] **4.2** Her senaryo için GUROBI ile MICP çöz, binary çözümleri topla
 - [x] **4.3** Binary çözüm refinement: ill-posed durumu düzelt (bir constraint zaten sağlanıyorsa binary'yi 0 yap)
 - [x] **4.4** Dataset formatı: (graph, node features, edge binary labels)
-- [ ] **4.5** 2-5 robot ile yeterli sayıda veri üret (~5000-10000 başlangıç için yeterli)
-- [ ] **4.6** Train/validation split (%90/%10)
+- [x] **4.5** 2-5 robot ile yeterli sayıda veri üret (~5000-10000 başlangıç için yeterli)
+- [x] **4.6** Train/validation split (%90/%10)
 
 **Bu fazın sonunda anlaşılacak:** Supervised learning için veri üretim süreci, parametric MICP kavramı, veri kalitesi önemi
 
@@ -81,7 +81,7 @@ GAT eğitimi için dataset oluşturma.
 
 Heterogeneous GAT network tasarlama ve eğitme.
 
-- [ ] **5.1** PyTorch Geometric kurulumu ve temel kavramlar: node features, edge index, heterogeneous graph
+- [x] **5.1** PyTorch Geometric kurulumu ve temel kavramlar: node features, edge index, heterogeneous graph
 - [ ] **5.2** Projection layer: farklı node tiplerini (robot vs engel) aynı feature space'e taşı
 - [ ] **5.3** GAT layer'ı anla: attention mekanizması nasıl çalışıyor? (Denklem 11-12)
 - [ ] **5.4** Encoder implement et: Projection → 2-layer GAT (64 nöron)
