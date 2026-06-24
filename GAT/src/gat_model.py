@@ -124,62 +124,186 @@ class GATEncoder(nn.Module):
 
 
 # =============================================================================
+# Faz 5.5-5.6: Decoder
+# =============================================================================
+
+class EdgeDecoder(nn.Module):
+    """Bir edge tipi icin binary tahmin yapan decoder.
+
+    Akis:
+      h_i (src node embedding, 64D)  ─┐
+                                        ├─ concat ─► [128D] ─► FF ─► [H*4] ─► sigmoid
+      h_j (dst node embedding, 64D)  ─┘
+
+    Neden iki node'u birlestiriyoruz?
+      Binary karar, iki node ARASINDAKI iliskiye bagli.
+      Ornegin robot-engel: "robot engelin sagından mi solundan mi gececek?"
+      Bu karar tek basina ne robottan ne de engelden anlasilir — ikisine birden bakmak lazim.
+
+    Neden ayri decoder'lar (5.6)?
+      - RO decoder (Omega_RO): robot-engel binary'leri
+        Robot engelin hangi tarafindan gececek? (4 yon x H adim)
+      - RR decoder (Omega_R): robot-robot binary'leri
+        Iki robot birbirinin hangi tarafinda kalacak? (4 yon x H adim)
+      Fiziksel anlam farkli → farkli agirliklar ogrenmeli.
+    """
+
+    def __init__(self, hidden_dim=64, output_dim=60, ff_hidden=128):
+        """
+        Args:
+            hidden_dim: encoder'dan gelen node embedding boyutu
+            output_dim: H * 4 (ornegin 15 * 4 = 60)
+            ff_hidden:  feedforward katmanin gizli boyutu
+        """
+        super().__init__()
+        self.ff = nn.Sequential(
+            nn.Linear(hidden_dim * 2, ff_hidden),  # [h_i || h_j] -> ff_hidden
+            nn.ReLU(),
+            nn.Linear(ff_hidden, output_dim),       # ff_hidden -> H*4
+        )
+
+    def forward(self, h, edge_index):
+        """
+        Args:
+            h:          (N, hidden_dim) tum node embedding'leri
+            edge_index: (2, E_type) bu tip icin edge'ler
+
+        Returns:
+            pred: (E_type, output_dim) her edge icin binary tahminler (logits)
+        """
+        src = edge_index[0]  # kaynak node indexleri
+        dst = edge_index[1]  # hedef node indexleri
+        h_src = h[src]       # (E_type, hidden_dim)
+        h_dst = h[dst]       # (E_type, hidden_dim)
+        edge_emb = torch.cat([h_src, h_dst], dim=1)  # (E_type, hidden_dim*2)
+        return self.ff(edge_emb)  # (E_type, output_dim) — logits (sigmoid oncesi)
+
+
+# =============================================================================
+# Faz 5.5-5.6: Tam Model
+# =============================================================================
+
+class GATBinaryPredictor(nn.Module):
+    """Encoder + iki ayri decoder = tam model.
+
+    Encoder (paylasilan):
+      Tum node'lar icin ortak embedding ogrenir.
+
+    Decoder RO (Omega_RO):
+      Robot-engel edge'leri icin binary tahmin.
+
+    Decoder RR (Omega_R):
+      Robot-robot edge'leri icin binary tahmin.
+    """
+
+    def __init__(self, robot_feat_dim=4, obstacle_feat_dim=5,
+                 hidden_dim=64, num_heads=4, num_layers=2,
+                 H=15, ff_hidden=128, dropout=0.0):
+        super().__init__()
+        self.encoder = GATEncoder(
+            robot_feat_dim, obstacle_feat_dim,
+            hidden_dim, num_heads, num_layers, dropout
+        )
+        output_dim = H * 4  # her edge icin H zaman adimi x 4 yon
+        self.decoder_ro = EdgeDecoder(hidden_dim, output_dim, ff_hidden)
+        self.decoder_rr = EdgeDecoder(hidden_dim, output_dim, ff_hidden)
+        self.H = H
+
+    def forward(self, x_robot, x_obstacle, edge_index_all,
+                edge_index_ro, edge_index_rr):
+        """
+        Args:
+            x_robot:        (NR, 4)
+            x_obstacle:     (NO, 5)
+            edge_index_all: (2, E) tum edge'ler — encoder icin
+            edge_index_ro:  (2, E_ro) robot-engel edge'leri — decoder icin
+            edge_index_rr:  (2, E_rr) robot-robot edge'leri — decoder icin
+
+        Returns:
+            logits_ro: (E_ro, H*4) robot-engel binary logits
+            logits_rr: (E_rr, H*4) robot-robot binary logits
+        """
+        # Encoder: tum node embedding'lerini hesapla
+        h = self.encoder(x_robot, x_obstacle, edge_index_all)
+
+        # Decoder: her edge tipi icin ayri binary tahmin
+        logits_ro = self.decoder_ro(h, edge_index_ro)
+        logits_rr = self.decoder_rr(h, edge_index_rr)
+
+        return logits_ro, logits_rr
+
+
+# =============================================================================
 # Test
 # =============================================================================
 
 if __name__ == "__main__":
     torch.manual_seed(42)
 
-    # === Ornek: 3 robot, 2 engel ===
-    NR, NO = 3, 2
-    x_robot = torch.randn(NR, 4)     # [px, py, gx, gy]
-    x_obstacle = torch.randn(NO, 5)  # [cx, cy, angle, L, W]
+    # === Ornek senaryo: 3 robot, 2 engel, H=15 ===
+    NR, NO, H = 3, 2, 15
+    x_robot = torch.randn(NR, 4)
+    x_obstacle = torch.randn(NO, 5)
 
-    # --- 5.2: Projection test ---
-    proj = ProjectionLayer(robot_feat_dim=4, obstacle_feat_dim=5, hidden_dim=64)
-    h = proj(x_robot, x_obstacle)
-    print("=== Projection Layer Test ===")
-    print(f"Input:  x_robot {x_robot.shape}, x_obstacle {x_obstacle.shape}")
-    print(f"Output: h {h.shape}")
-
-    # --- 5.3-5.4: GAT Encoder test ---
-    # Edge index olustur: tum edge tiplerini birlestir
+    # --- Edge index'leri olustur ---
     # Node indexleme: robotlar 0..NR-1, engeller NR..NR+NO-1
-    edges = []
-    # RO: her robot -> her engel
+    all_edges = []
+
+    # RO: robot -> engel (binary tahmin edilecek)
+    ro_edges = []
     for i in range(NR):
         for o in range(NO):
-            edges.append([i, NR + o])
-    # OR: her engel -> her robot (ters yon, bilgi akisi)
+            ro_edges.append([i, NR + o])
+    all_edges.extend(ro_edges)
+
+    # OR: engel -> robot (bilgi akisi, binary yok)
     for o in range(NO):
         for i in range(NR):
-            edges.append([NR + o, i])
-    # RR: robot-robot (tam bagli)
+            all_edges.append([NR + o, i])
+
+    # RR: robot -> robot (binary tahmin edilecek)
+    rr_edges = []
     for i in range(NR):
         for j in range(NR):
             if i != j:
-                edges.append([i, j])
-    # OO: engel-engel
+                rr_edges.append([i, j])
+    all_edges.extend(rr_edges)
+
+    # OO: engel -> engel (bilgi akisi)
     for o1 in range(NO):
         for o2 in range(NO):
             if o1 != o2:
-                edges.append([NR + o1, NR + o2])
+                all_edges.append([NR + o1, NR + o2])
 
-    edge_index = torch.tensor(edges, dtype=torch.long).t()  # (2, E)
+    edge_index_all = torch.tensor(all_edges, dtype=torch.long).t()
+    edge_index_ro = torch.tensor(ro_edges, dtype=torch.long).t()
+    edge_index_rr = torch.tensor(rr_edges, dtype=torch.long).t()
 
-    print(f"\n=== GAT Encoder Test ===")
-    print(f"Nodes: {NR} robot + {NO} engel = {NR+NO} toplam")
-    print(f"Edges: {edge_index.shape[1]} (RO + OR + RR + OO)")
+    # --- Tam model testi ---
+    model = GATBinaryPredictor(hidden_dim=64, num_heads=4, num_layers=2, H=H)
 
-    encoder = GATEncoder(hidden_dim=64, num_heads=4, num_layers=2)
-    h = encoder(x_robot, x_obstacle, edge_index)
+    logits_ro, logits_rr = model(
+        x_robot, x_obstacle, edge_index_all,
+        edge_index_ro, edge_index_rr
+    )
 
-    print(f"Output: h {h.shape}")
-    print(f"  h[0] (Robot 0):   [{h[0, :4].tolist()}, ...]")
-    print(f"  h[{NR}] (Engel 0): [{h[NR, :4].tolist()}, ...]")
+    print("=== GATBinaryPredictor Test ===")
+    print(f"Input:  {NR} robot, {NO} engel, H={H}")
+    print(f"Edges:  {edge_index_all.shape[1]} total, "
+          f"{edge_index_ro.shape[1]} RO, {edge_index_rr.shape[1]} RR")
+    print(f"\nOutput:")
+    print(f"  logits_ro: {logits_ro.shape}  (E_ro={NR*NO}, H*4={H*4})")
+    print(f"  logits_rr: {logits_rr.shape}  (E_rr={len(rr_edges)}, H*4={H*4})")
 
-    total = sum(p.numel() for p in encoder.parameters())
+    # Sigmoid -> olasilik
+    probs_ro = torch.sigmoid(logits_ro)
+    print(f"\nOrnek RO edge 0 (Robot0->Engel0):")
+    print(f"  Ilk 8 olasilik: {probs_ro[0, :8].tolist()}")
+    print(f"  Min: {probs_ro.min():.3f}, Max: {probs_ro.max():.3f}")
+
+    # Parametre sayisi
+    total = sum(p.numel() for p in model.parameters())
     print(f"\nToplam parametre: {total}")
-    print(f"\nKatmanlar:")
-    for name, p in encoder.named_parameters():
-        print(f"  {name}: {p.shape}")
+    print(f"  Encoder: {sum(p.numel() for p in model.encoder.parameters())}")
+    print(f"  Decoder RO: {sum(p.numel() for p in model.decoder_ro.parameters())}")
+    print(f"  Decoder RR: {sum(p.numel() for p in model.decoder_rr.parameters())}")

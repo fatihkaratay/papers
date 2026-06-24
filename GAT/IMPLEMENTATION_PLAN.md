@@ -82,11 +82,11 @@ GAT eğitimi için dataset oluşturma.
 Heterogeneous GAT network tasarlama ve eğitme.
 
 - [x] **5.1** PyTorch Geometric kurulumu ve temel kavramlar: node features, edge index, heterogeneous graph
-- [ ] **5.2** Projection layer: farklı node tiplerini (robot vs engel) aynı feature space'e taşı
-- [ ] **5.3** GAT layer'ı anla: attention mekanizması nasıl çalışıyor? (Denklem 11-12)
-- [ ] **5.4** Encoder implement et: Projection → 2-layer GAT (64 nöron)
-- [ ] **5.5** Decoder implement et: edge embedding (iki node'un embedding'ini birleştir) → feedforward NN → binary prediction
-- [ ] **5.6** Ayrı decoder'lar: robot-robot kenarları için ΩR, robot-engel kenarları için ΩRO
+- [x] **5.2** Projection layer: farklı node tiplerini (robot vs engel) aynı feature space'e taşı
+- [x] **5.3** GAT layer'ı anla: attention mekanizması nasıl çalışıyor? (Denklem 11-12)
+- [x] **5.4** Encoder implement et: Projection → 2-layer GAT (64 nöron)
+- [x] **5.5** Decoder implement et: edge embedding (iki node'un embedding'ini birleştir) → feedforward NN → binary prediction
+- [x] **5.6** Ayrı decoder'lar: robot-robot kenarları için ΩR, robot-engel kenarları için ΩRO
 - [ ] **5.7** Cross-entropy loss ile eğitim
 - [ ] **5.8** Validation accuracy ölç (hedef: ~%90+ robot-engel, ~%90+ robot-robot)
 
