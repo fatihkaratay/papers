@@ -1,8 +1,3 @@
-"""
-Faz 3: Multi-robot MICP animasyonu — interaktif kontroller ile.
-Play/Pause, Step, Slider, Replay destegi.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -13,17 +8,6 @@ from multi_robot_micp import solve_multi_robot_micp
 
 def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
                         tau, dmin):
-    """Multi-robot MICP sonucunu interaktif animasyon olarak goster.
-
-    Args:
-        env: Environment nesnesi
-        p_trajs: list of (H+1, 2) — her robotun trajectory'si
-        v_trajs: list of (H+1, 2) — her robotun hiz profili
-        u_trajs: list of (H, 2) — her robotun kontrol inputlari
-        robot_edges: list of (i, j) — robot-robot edge'leri
-        tau: sampling period
-        dmin: guvenli yaricap
-    """
     NR = len(p_trajs)
     H = len(u_trajs[0])
     n_frames = H + 1
@@ -32,7 +16,6 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
 
     state = {'frame': 0, 'playing': True}
 
-    # --- Layout: 2 panel + slider ---
     fig = plt.figure(figsize=(15, 6.5))
     gs = fig.add_gridspec(2, 2, height_ratios=[1, 0.08], hspace=0.35,
                           left=0.06, right=0.97, top=0.92, bottom=0.12)
@@ -40,7 +23,6 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
     ax2 = fig.add_subplot(gs[0, 1])
     ax_slider = fig.add_subplot(gs[1, :])
 
-    # === Panel 1: Ortam + robotlar ===
     px_min, px_max, py_min, py_max = env.bounds
     ax1.set_xlim(px_min - 0.3, px_max + 0.3)
     ax1.set_ylim(py_min - 0.3, py_max + 0.3)
@@ -50,13 +32,11 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
     ax1.set_ylabel('y (m)')
     ax1.set_title('Multi-Robot MICP')
 
-    # Sinir
     border = patches.Rectangle(
         (px_min, py_min), px_max - px_min, py_max - py_min,
         linewidth=2, edgecolor='black', facecolor='none', linestyle='--')
     ax1.add_patch(border)
 
-    # Engeller
     for obs in env.obstacles:
         w = 2 * obs.half_length
         h = 2 * obs.half_width
@@ -70,22 +50,21 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
         rect.set_transform(t)
         ax1.add_patch(rect)
 
-    # Her robot icin: hedef, tam trajectory (soluk), trail, daire
     trail_lines = []
     robot_circles = []
     for i in range(NR):
         c = colors[i % len(colors)]
-        # Hedef (yildiz)
+
         ax1.plot(*env.robots[i].goal, '*', color=c, markersize=15,
                  markeredgecolor='black', markeredgewidth=0.5, zorder=5)
-        # Tam trajectory (soluk)
+
         ax1.plot(p_trajs[i][:, 0], p_trajs[i][:, 1], '-', color=c,
                  alpha=0.12, linewidth=1)
-        # Canli trail
+
         line, = ax1.plot([], [], '-o', color=c, markersize=2,
                          linewidth=2, alpha=0.6, label=f'Robot {i+1}')
         trail_lines.append(line)
-        # Guvenli daire
+
         circle = patches.Circle((0, 0), dmin, fill=False,
                                 edgecolor=c, linewidth=2, alpha=0.8)
         ax1.add_patch(circle)
@@ -96,8 +75,6 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
                          fontsize=10, verticalalignment='top',
                          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-    # === Panel 2: Inter-robot mesafe ===
-    # Onceden hesapla
     edge_dists = {}
     for (i, j) in robot_edges:
         edge_dists[i, j] = np.linalg.norm(p_trajs[i] - p_trajs[j], axis=1)
@@ -126,11 +103,9 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
         dist_markers[i, j] = marker
     ax2.legend(loc='upper right', fontsize=9)
 
-    # === Slider ===
     slider = Slider(ax_slider, 'Step', 0, H, valinit=0, valstep=1,
                     color='tab:blue', alpha=0.5)
 
-    # === Butonlar ===
     ax_play = fig.add_axes([0.35, 0.01, 0.08, 0.04])
     ax_prev = fig.add_axes([0.44, 0.01, 0.05, 0.04])
     ax_next = fig.add_axes([0.50, 0.01, 0.05, 0.04])
@@ -145,21 +120,18 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
         frame = int(frame)
         state['frame'] = frame
 
-        # Robotlari guncelle
         for i in range(NR):
             trail_lines[i].set_data(p_trajs[i][:frame+1, 0],
                                     p_trajs[i][:frame+1, 1])
             robot_circles[i].center = (p_trajs[i][frame, 0],
                                        p_trajs[i][frame, 1])
 
-        # Mesafe grafiklerini guncelle
         for (i, j) in robot_edges:
             dist_lines[i, j].set_data(time_all[:frame+1],
                                       edge_dists[i, j][:frame+1])
             dist_markers[i, j].set_data([time_all[frame]],
                                         [edge_dists[i, j][frame]])
 
-        # Bilgi kutusu
         info = f't = {frame * tau:.1f}s'
         for (i, j) in robot_edges:
             info += f'\nR{i+1}-R{j+1}: {edge_dists[i,j][frame]:.2f}m'
@@ -219,7 +191,6 @@ def animate_multi_robot(env, p_trajs, v_trajs, u_trajs, robot_edges,
 
 
 def run_scenario(name, env, H, tau, vmax, amax, dmin, dprox):
-    """Senaryo coz ve animasyonu goster."""
     robots_p = [r.position.copy() for r in env.robots]
     robots_v = [r.velocity.copy() for r in env.robots]
     robots_goal = [r.goal.copy() for r in env.robots]
@@ -249,11 +220,9 @@ if __name__ == "__main__":
     dmin = 0.2
     dprox = 5.0
 
-    # Hangi senaryoyu calistiracagiz?
     scenario = sys.argv[1] if len(sys.argv) > 1 else "3r2o"
 
     if scenario == "2r1o":
-        # --- Senaryo A: 2 robot + 1 engel (karsidan karsilasma) ---
         env = Environment(bounds=(-3.0, 1.0, -0.5, 2.5))
         env.add_obstacle(center=(-1.0, 1.0), half_length=0.3, half_width=0.2)
         env.add_robot(position=(-2.5, 1.0), goal=(0.5, 1.0))
@@ -261,16 +230,15 @@ if __name__ == "__main__":
         run_scenario("2 Robot + 1 Engel", env, H, tau, vmax, amax, dmin, dprox)
 
     elif scenario == "3r2o":
-        # --- Senaryo B: 3 robot + 2 engel (capraz gecis) ---
         env = Environment(bounds=(-3.0, 3.0, -1.0, 3.0))
         env.add_obstacle(center=(-0.5, 1.0), half_length=0.35, half_width=0.2)
         env.add_obstacle(center=(0.8, 1.8), half_length=0.25, half_width=0.2,
                          angle=np.radians(30))
-        # Robot 1: sol-alt → sag-ust
+        # Robot 1
         env.add_robot(position=(-2.5, 0.0), goal=(2.5, 2.5))
-        # Robot 2: sag-alt → sol-ust
+        # Robot 2
         env.add_robot(position=(2.5, 0.0), goal=(-2.5, 2.5))
-        # Robot 3: sol-ust → sag-alt (digerlerini keser)
+        # Robot 3
         env.add_robot(position=(-2.0, 2.5), goal=(2.0, 0.0))
         run_scenario("3 Robot + 2 Engel", env, H, tau, vmax, amax, dmin, dprox)
 

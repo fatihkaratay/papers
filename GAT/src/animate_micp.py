@@ -1,8 +1,3 @@
-"""
-MICP trajectory animasyonu — interaktif kontroller ile.
-Play/Pause, Step, Slider, Replay destegi.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -14,23 +9,13 @@ from single_robot_micp import solve_single_robot_micp
 
 def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
                         save_gif=None):
-    """MICP sonucunu interaktif animasyon olarak goster.
-
-    Kontroller:
-      - Play/Pause butonu
-      - Step (<< ve >>) butonlari
-      - Zaman slider'i
-      - Replay butonu (sona gelince)
-    """
     H = len(u_traj)
     n_frames = H + 1
     time_all = np.arange(n_frames) * tau
     speeds = np.linalg.norm(v_traj, axis=1)
 
-    # --- State ---
     state = {'frame': 0, 'playing': True, 'anim': None}
 
-    # --- Layout: 3 panel + alt kontrol bari ---
     fig = plt.figure(figsize=(16, 6.5))
     gs = fig.add_gridspec(2, 3, height_ratios=[1, 0.08], hspace=0.35,
                           left=0.05, right=0.97, top=0.92, bottom=0.12)
@@ -39,7 +24,6 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
     ax3 = fig.add_subplot(gs[0, 2])
     ax_slider = fig.add_subplot(gs[1, :])
 
-    # --- Panel 1: Ortam + robot ---
     px_min, px_max, py_min, py_max = env.bounds
     ax1.set_xlim(px_min - 0.2, px_max + 0.2)
     ax1.set_ylim(py_min - 0.2, py_max + 0.2)
@@ -82,7 +66,6 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
                          fontsize=10, verticalalignment='top',
                          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-    # --- Panel 2: Speed profile ---
     ax2.set_xlim(0, time_all[-1] + tau)
     ax2.set_ylim(0, max(speeds) * 1.15 + 0.05)
     ax2.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5, label='vmax=0.5')
@@ -94,7 +77,6 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
     speed_line, = ax2.plot([], [], '-o', color='tab:blue', markersize=3)
     speed_marker, = ax2.plot([], [], 'o', color='red', markersize=8, zorder=5)
 
-    # --- Panel 3: Binary decisions ---
     labels = ['right', 'top', 'left', 'bottom']
     colors_b = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
     time_u = np.arange(H) * tau
@@ -112,11 +94,9 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
         binary_lines.append(line)
     ax3.legend(loc='upper right', fontsize=8)
 
-    # --- Slider ---
     slider = Slider(ax_slider, 'Step', 0, H, valinit=0, valstep=1,
                     color='tab:blue', alpha=0.5)
 
-    # --- Butonlar ---
     ax_play = fig.add_axes([0.35, 0.01, 0.08, 0.04])
     ax_prev = fig.add_axes([0.44, 0.01, 0.05, 0.04])
     ax_next = fig.add_axes([0.50, 0.01, 0.05, 0.04])
@@ -147,7 +127,6 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
             for m in range(4):
                 binary_lines[m].set_data([], [])
 
-        # Slider'i guncelle (event tetiklemeden)
         slider.eventson = False
         slider.set_val(frame)
         slider.eventson = True
@@ -169,7 +148,6 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
 
     def on_play(event):
         if state['frame'] >= H:
-            # Sondaysa, replay gibi davran
             state['frame'] = 0
             draw_frame(0)
         state['playing'] = not state['playing']
@@ -200,15 +178,12 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
     btn_next.on_clicked(on_next)
     btn_replay.on_clicked(on_replay)
 
-    # Timer-based animation (her 200ms bir frame ilerle)
     timer = fig.canvas.new_timer(interval=200)
     timer.add_callback(animate_step, 0)
     timer.start()
 
-    # Baslangic frame
     draw_frame(0)
 
-    # Opsiyonel GIF kaydet
     if save_gif:
         anim = FuncAnimation(fig, lambda f: draw_frame(f),
                               frames=n_frames, interval=200, repeat=False)
@@ -219,7 +194,6 @@ def animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin,
 
 
 if __name__ == "__main__":
-    # Ayni senaryo: tek robot + 2 engel
     tau = 0.2
     H = 20
     env_bounds = (-3.0, 0.5, -0.5, 2.0)
@@ -237,11 +211,9 @@ if __name__ == "__main__":
     p_goal = np.array([0.0, 1.5])
     env.add_robot(position=p_init, goal=p_goal)
 
-    # MICP coz
     p_traj, v_traj, u_traj, binaries = solve_single_robot_micp(
         p_init, v_init, p_goal, env.obstacles, H, tau,
         env_bounds, vmax, amax, dmin
     )
 
-    # Interaktif animasyon
     animate_trajectory(env, p_traj, v_traj, u_traj, binaries, tau, dmin)

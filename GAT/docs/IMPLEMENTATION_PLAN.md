@@ -5,20 +5,20 @@
 
 ---
 
-## Faz 0: Temel Kavramları Anlama
+## phase 0: Temel Kavramları Anlama
 
-Bu fazda kod yazmıyoruz. Sadece problem uzayını ve kavramları anlıyoruz.
+Bu phaseda kod yazmıyoruz. Sadece problem uzayını ve kavramları anlıyoruz.
 
 - [x] **0.1** Problem nedir? Multi-robot navigation with obstacle avoidance
 - [x] **0.2** Neden "Mixed-Integer"? Çarpışma engelleme kısıtları OR içeriyor → big-M ile binary değişkenlere dönüşüyor
 - [x] **0.3** Neden "Convex"? Binary değişkenler sabitlenince kalan problem quadratic cost + linear constraints = convex
 - [x] **0.4** Neden Graph Attention Network? Robotlar ve engeller arası ilişkiler doğal olarak bir graf oluşturuyor, GAT bu yapıyı öğrenebiliyor
 - [x] **0.5** Framework'ün büyük resmi: Offline (GAT eğit) → Online (GAT ile binary tahmin et → convex problemi çöz)
-- **Notlar:** `plots/faz0_kavramlar.md` dosyasında detaylı açıklamalar mevcut.
+- **Notlar:** `plots/phase0_kavramlar.md` dosyasında detaylı açıklamalar mevcut.
 
 ---
 
-## Faz 1: 2D Ortam ve Robot Dinamikleri
+## phase 1: 2D Ortam ve Robot Dinamikleri
 
 Tek bir robotu hareket ettirebildiğimiz basit bir simülasyon ortamı.
 
@@ -28,11 +28,11 @@ Tek bir robotu hareket ettirebildiğimiz basit bir simülasyon ortamı.
 - [x] **1.4** Görselleştirme: matplotlib ile robotun hareketini, engelleri ve hedefi çiz
 - [x] **1.5** Bound constraints ekle: hız limiti, ivme limiti, ortam sınırları
 
-**Bu fazın sonunda anlaşılacak:** Robotun dinamik modeli, state-space temsili, basit trajectory planning
+**Bu phaseın sonunda anlaşılacak:** Robotun dinamik modeli, state-space temsili, basit trajectory planning
 
 ---
 
-## Faz 2: Tek Robot + Engel ile MICP
+## phase 2: Tek Robot + Engel ile MICP
 
 Tek bir robotun tek bir engelden kaçınma problemini big-M formülasyonu ile çözme.
 
@@ -43,13 +43,13 @@ Tek bir robotun tek bir engelden kaçınma problemini big-M formülasyonu ile ç
 - [x] **2.5** Çözümü görselleştir: robotun engelden kaçarak hedefe giden trajectory'si
 - [x] **2.6** Receding horizon (MPC) loop: her adımda MICP çöz, ilk control input'u uygula, tekrarla
 
-**Bu fazın sonunda anlaşılacak:** Big-M formülasyonu, MICP yapısı, binary değişkenlerin rolü, receding horizon mantığı
+**Bu phaseın sonunda anlaşılacak:** Big-M formülasyonu, MICP yapısı, binary değişkenlerin rolü, receding horizon mantığı
 
 ---
 
-## Faz 3: Çoklu Robot MICP
+## phase 3: Çoklu Robot MICP
 
-Birden fazla robotun birbirleriyle ve engellerle çarpışmadan navigasyon yapması.
+Birden phasela robotun birbirleriyle ve engellerle çarpışmadan navigasyon yapması.
 
 - [x] **3.1** Robot-robot çarpışma kısıtlarını implement et (Denklem 4): big-M ile inter-robot collision avoidance
 - [x] **3.2** Proximity-based edge oluşturma: sadece yakın robotlar arasında kısıt koy (Denklem 5, dprox eşiği)
@@ -58,11 +58,11 @@ Birden fazla robotun birbirleriyle ve engellerle çarpışmadan navigasyon yapma
 - [x] **3.5** Robot sayısı arttıkça GUROBI çözüm süresini ölç ve kaydet
 - [x] **3.6** Heterogeneous graph yapısını anla: V = R ∪ O, E = ER ∪ ERO ∪ EOR ∪ EO
 
-**Bu fazın sonunda anlaşılacak:** Multi-agent MICP karmaşıklığı, coupling constraints, graph yapısının doğal olarak ortaya çıkışı
+**Bu phaseın sonunda anlaşılacak:** Multi-agent MICP karmaşıklığı, coupling constraints, graph yapısının doğal olarak ortaya çıkışı
 
 ---
 
-## Faz 4: Veri Üretimi
+## phase 4: Veri Üretimi
 
 GAT eğitimi için dataset oluşturma.
 
@@ -73,11 +73,11 @@ GAT eğitimi için dataset oluşturma.
 - [x] **4.5** 2-5 robot ile yeterli sayıda veri üret (~5000-10000 başlangıç için yeterli)
 - [x] **4.6** Train/validation split (%90/%10)
 
-**Bu fazın sonunda anlaşılacak:** Supervised learning için veri üretim süreci, parametric MICP kavramı, veri kalitesi önemi
+**Bu phaseın sonunda anlaşılacak:** Supervised learning için veri üretim süreci, parametric MICP kavramı, veri kalitesi önemi
 
 ---
 
-## Faz 5: Graph Attention Network (GAT) Eğitimi
+## phase 5: Graph Attention Network (GAT) Eğitimi
 
 Heterogeneous GAT network tasarlama ve eğitme.
 
@@ -90,11 +90,11 @@ Heterogeneous GAT network tasarlama ve eğitme.
 - [x] **5.7** Cross-entropy loss ile eğitim
 - [x] **5.8** Validation accuracy ölç (hedef: ~%90+ robot-engel, ~%90+ robot-robot)
 
-**Bu fazın sonunda anlaşılacak:** GAT'in neden bu probleme uygun olduğu, heterogeneous graph learning, attention mekanizması
+**Bu phaseın sonunda anlaşılacak:** GAT'in neden bu probleme uygun olduğu, heterogeneous graph learning, attention mekanizması
 
 ---
 
-## Faz 6: Online Pipeline — GAT + Convex Solver
+## phase 6: Online Pipeline — GAT + Convex Solver
 
 Eğitilmiş GAT'i kullanarak online trajectory planning.
 
@@ -105,13 +105,13 @@ Eğitilmiş GAT'i kullanarak online trajectory planning.
 - [x] **6.5** Metrikler: RO acc %84.7, RR acc %83.8, collision %17, goal %6.1
 - [x] **6.6** Robot sayısına göre: NR=2-5 arası 1.1-1.2x speedup (küçük senaryolarda fark az)
 
-**Sonuçlar:** Pipeline uçtan uca çalışıyor. Speedup küçük senaryolarda mütevazı (1.2x) çünkü MICP zaten hızlı. Asıl fayda çok robotlu (10+) senaryolarda — MICP üstel, QP doğrusal. Binary accuracy (%84) iyileştirilebilir (daha fazla veri, daha büyük model).
+**Sonuçlar:** Pipeline uçtan uca çalışıyor. Speedup küçük senaryolarda mütevazı (1.2x) çünkü MICP zaten hızlı. Asıl fayda çok robotlu (10+) senaryolarda — MICP üstel, QP doğrusal. Binary accuracy (%84) iyileştirilebilir (daha phasela veri, daha büyük model).
 
 ---
 
-## Faz 7 (Opsiyonel): Distributed ADMM
+## phase 7 (Opsiyonel): Distributed ADMM
 
-Bu faz opsiyonel — ana fikri anlamak için şart değil ama ilgi duyarsan ekleyebiliriz.
+Bu phase opsiyonel — ana fikri anlamak için şart değil ama ilgi duyarsan ekleyebiliriz.
 
 - [ ] **7.1** ADMM temel kavramı: augmented Lagrangian, primal-dual updates
 - [ ] **7.2** Proximal ADMM implement et (Algorithm 1)
@@ -123,5 +123,5 @@ Bu faz opsiyonel — ana fikri anlamak için şart değil ama ilgi duyarsan ekle
 
 - **Araçlar:** Python, NumPy, Matplotlib, GUROBI (gurobipy), PyTorch, PyTorch Geometric
 - **GUROBI Lisans:** WLS Compute Server (90 gün)
-- **Öncelik:** Anlama > Hız. Her fazda ne öğrendiğimizi not edelim.
+- **Öncelik:** Anlama > Hız. Her phaseda ne öğrendiğimizi not edelim.
 - **Basitleştirmeler:** Makaledeki bazı detayları (unicycle tracking, EKF vb.) atlayabiliriz — bunlar fiziksel robot için gerekli, simülasyonda double-integrator yeterli.

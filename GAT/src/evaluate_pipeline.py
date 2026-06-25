@@ -1,14 +1,3 @@
-"""
-Faz 6.4-6.5: GAT+QP vs MICP karsilastirmasi ve metrikler.
-
-Birden fazla senaryo uzerinde:
-  - Cozum suresi karsilastirmasi (speedup)
-  - Binary tahmin dogrulugu
-  - Carpma orani (collision rate)
-  - Basari orani (hedefe ulasma)
-  - Infeasibility orani
-"""
-
 import time
 import numpy as np
 import pickle
@@ -21,7 +10,6 @@ from gat_qp_solver import load_model, predict_binaries, solve_qp_with_fixed_bina
 
 
 def build_graph_for_prediction(env, edges, H):
-    """Senaryo bilgisinden GAT icin graph olustur (label'siz)."""
     NR = len(env.robots)
     NO = len(env.obstacles)
 
@@ -37,7 +25,6 @@ def build_graph_for_prediction(env, edges, H):
             'angle': obs.angle,
         })
 
-    # Dummy binary'ler (sadece graph yapisi icin)
     b_obs_list = []
     for i in range(NR):
         for o in range(NO):
@@ -63,12 +50,6 @@ def build_graph_for_prediction(env, edges, H):
 
 
 def check_collisions(p_trajs, obstacles, robot_edges, dmin):
-    """Trajectory'de carpma var mi kontrol et.
-
-    Returns:
-        obs_collisions: robot-engel carpma sayisi
-        rob_collisions: robot-robot carpma sayisi
-    """
     NR = len(p_trajs)
     H = p_trajs[0].shape[0] - 1
     obs_collisions = 0
@@ -85,13 +66,11 @@ def check_collisions(p_trajs, obstacles, robot_edges, dmin):
             for k in range(1, H + 1):
                 px, py = p_trajs[i][k]
                 dx, dy = px - ox, py - oy
-                # Engelin lokal koordinatlarinda
                 lx = abs(ca * dx + sa * dy)
                 ly = abs(-sa * dx + ca * dy)
                 if lx < L + dmin - 1e-4 and ly < W + dmin - 1e-4:
                     obs_collisions += 1
 
-    # Robot-robot carpmasi
     for (i, j) in robot_edges:
         for k in range(1, H + 1):
             dist = np.linalg.norm(p_trajs[i][k] - p_trajs[j][k])
@@ -102,7 +81,6 @@ def check_collisions(p_trajs, obstacles, robot_edges, dmin):
 
 
 def check_goal_reached(p_trajs, robots_goal, threshold=0.5):
-    """Robotlar hedefe yeterince yaklasti mi?"""
     reached = 0
     for i in range(len(p_trajs)):
         dist = np.linalg.norm(p_trajs[i][-1] - robots_goal[i])
@@ -114,11 +92,9 @@ def check_goal_reached(p_trajs, robots_goal, threshold=0.5):
 def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
              H=15, tau=0.2, vmax=0.5, amax=0.5, dmin=0.2, dprox=5.0,
              bounds=(-4.0, 4.0, -4.0, 4.0), base_seed=9999):
-    """Toplu degerlendirme."""
 
     model, norm_stats = load_model()
 
-    # Istatistikler
     results = {
         'micp_times': [], 'gat_times': [], 'qp_times': [],
         'ro_accs': [], 'rr_accs': [],
@@ -142,7 +118,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
         nr = rng.randint(n_robots_range[0], n_robots_range[1] + 1)
         no = rng.randint(n_obstacles_range[0], n_obstacles_range[1] + 1)
 
-        # Senaryo uret
         try:
             env = generate_scenario(nr, no, bounds, dmin, rng)
         except RuntimeError:
@@ -153,7 +128,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
         robots_v = [r.velocity.copy() for r in env.robots]
         robots_goal = [r.goal.copy() for r in env.robots]
 
-        # --- MICP ---
         t0 = time.time()
         try:
             p_micp, v_micp, u_micp, edges, b_obs_gt, b_rob_gt = \
@@ -165,7 +139,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
             continue
         t_micp = time.time() - t0
 
-        # --- GAT + QP ---
         graph = build_graph_for_prediction(env, edges, H)
 
         t0 = time.time()
@@ -198,7 +171,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
         results['gat_times'].append(t_gat)
         results['qp_times'].append(t_qp)
 
-        # Binary accuracy
         ro_match, ro_total = 0, 0
         for key in b_obs_pred:
             if key in b_obs_gt:
@@ -215,7 +187,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
         rr_acc = rr_match / max(rr_total, 1) if rr_total > 0 else float('nan')
         results['rr_accs'].append(rr_acc)
 
-        # Collision check
         m_oc, m_rc = check_collisions(p_micp, env.obstacles, edges, dmin)
         g_oc, g_rc = check_collisions(p_gat, env.obstacles, edges, dmin)
         results['micp_obs_collisions'].append(m_oc)
@@ -223,7 +194,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
         results['gat_obs_collisions'].append(g_oc)
         results['gat_rob_collisions'].append(g_rc)
 
-        # Goal check
         m_goals = check_goal_reached(p_micp, robots_goal)
         g_goals = check_goal_reached(p_gat, robots_goal)
         results['micp_goals'].append(m_goals)
@@ -238,7 +208,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
               f"{(t_gat+t_qp)*1000:>8.0f} {speedup:>5.1f}x "
               f"{100*ro_acc:>4.0f} {rr_str} {coll_str:>5} {note:>8}")
 
-    # === OZET ===
     print(f"\n{'='*65}")
     print(f"OZET ({results['n_scenarios_ok']}/{n_scenarios} senaryo basarili)")
     print(f"  Gen fail: {results['gen_fail']}, MICP fail: {results['micp_fail']}, "
@@ -292,7 +261,6 @@ def evaluate(n_scenarios=100, n_robots_range=(2, 5), n_obstacles_range=(1, 3),
     print(f"  GAT+QP: {total_robots_gat}/{total_robots_all} robot "
           f"({100*total_robots_gat/total_robots_all:.1f}%)")
 
-    # Robot sayisina gore speedup
     print(f"\n--- Robot Sayisina Gore Speedup ---")
     robots_arr = np.array(results['total_robots'])
     for nr_val in sorted(set(robots_arr)):

@@ -1,17 +1,3 @@
-"""
-Faz 4.5-4.6: Buyuk dataset uret ve train/validation split yap.
-
-Kullanim:
-    python generate_dataset.py              # 2000 sample, varsayilan ayarlar
-    python generate_dataset.py --n 5000     # 5000 sample
-    python generate_dataset.py --resume     # onceki calismayi devam ettir
-
-Cikti:
-    data/dataset_full.pkl   — tum sample'lar (raw)
-    data/dataset_train.pkl  — %90 train split (graph formati)
-    data/dataset_val.pkl    — %10 validation split (graph formati)
-"""
-
 import argparse
 import os
 import sys
@@ -29,10 +15,6 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
                           dmin=0.2, dprox=5.0,
                           bounds=(-4.0, 4.0, -4.0, 4.0),
                           base_seed=0, save_path=None, resume_path=None):
-    """Buyuk dataset topla, periyodik olarak diske kaydet.
-
-    Her 50 sample'da bir diske yazar, boylece crash olursa kayip az olur.
-    """
     # Resume: onceki dataset'i yukle
     dataset = []
     start_idx = 0
@@ -46,7 +28,7 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
             return dataset
 
     failed = 0
-    save_interval = 50  # her 50 sample'da kaydet
+    save_interval = 50
 
     print(f"\nVeri toplama: {n_samples} senaryo (baslangiC: {start_idx})")
     print(f"  Robotlar: {n_robots_range}, Engeller: {n_obstacles_range}")
@@ -62,7 +44,6 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
         nr = rng.randint(n_robots_range[0], n_robots_range[1] + 1)
         no = rng.randint(n_obstacles_range[0], n_obstacles_range[1] + 1)
 
-        # Senaryo uret
         try:
             env = generate_scenario(nr, no, bounds, dmin, rng)
         except RuntimeError:
@@ -70,7 +51,6 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
             print(f"{i+1:>5} {nr:>3} {no:>3} {'---':>5} {'---':>7} {'GEN_FAIL':>10} {len(dataset):>6}")
             continue
 
-        # MICP coz + refine
         sample = solve_and_collect(env, H, tau, vmax, amax, dmin, dprox)
 
         if sample is None:
@@ -84,8 +64,7 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
         n_edges = len(sample['robot_edges'])
         st = sample['solve_time']
         print(f"{i+1:>5} {nr:>3} {no:>3} {n_edges:>5} {st:>6.2f}s {'OK':>10} {len(dataset):>6}")
-
-        # Periyodik kayit
+        
         if save_path and len(dataset) % save_interval == 0:
             with open(save_path, 'wb') as f:
                 pickle.dump(dataset, f)
@@ -96,7 +75,6 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
                   f"Gecen: {elapsed/60:.1f}dk | "
                   f"Kalan tahmini: {remaining/60:.1f}dk")
 
-    # Son kayit
     if save_path and dataset:
         with open(save_path, 'wb') as f:
             pickle.dump(dataset, f)
@@ -114,16 +92,6 @@ def collect_dataset_large(n_samples, n_robots_range=(2, 5), n_obstacles_range=(1
 
 
 def make_splits(dataset, train_ratio=0.9, seed=42):
-    """Dataset'i train/val olarak bol ve graph formatina cevir.
-
-    Args:
-        dataset: list of raw sample dicts
-        train_ratio: train orani (0.9 = %90 train, %10 val)
-        seed: shuffle icin random seed
-
-    Returns:
-        train_graphs, val_graphs: list of graph dicts
-    """
     rng = np.random.RandomState(seed)
     indices = rng.permutation(len(dataset))
     split = int(len(dataset) * train_ratio)
@@ -138,7 +106,6 @@ def make_splits(dataset, train_ratio=0.9, seed=42):
 
 
 def print_dataset_stats(graphs, name):
-    """Dataset istatistiklerini yazdir."""
     print(f"\n--- {name} ({len(graphs)} sample) ---")
     if not graphs:
         return
@@ -157,7 +124,6 @@ def print_dataset_stats(graphs, name):
     print(f"  RR edges: min={min(n_rr)}, max={max(n_rr)}, "
           f"mean={np.mean(n_rr):.1f}")
 
-    # Label dagilimi (binary balance)
     all_ro = np.concatenate([g['edge_labels_RO'].flatten() for g in graphs])
     ro_ones_pct = 100 * all_ro.sum() / max(all_ro.size, 1)
     print(f"  RO label dagilimi: {ro_ones_pct:.1f}% ones (relaxed)")
@@ -187,7 +153,6 @@ if __name__ == "__main__":
     train_path = os.path.join(data_dir, 'dataset_train.pkl')
     val_path = os.path.join(data_dir, 'dataset_val.pkl')
 
-    # 1) Dataset topla
     dataset = collect_dataset_large(
         n_samples=args.n,
         n_robots_range=(args.min_robots, args.max_robots),
@@ -201,12 +166,10 @@ if __name__ == "__main__":
         print("Hic sample toplanamadi!")
         sys.exit(1)
 
-    # 2) Train/val split + graph formatina cevir
     print(f"\n{'='*50}")
     print("Train/validation split (%90/%10) ve graph donusumu...")
     train_graphs, val_graphs = make_splits(dataset, train_ratio=0.9)
 
-    # Kaydet
     with open(train_path, 'wb') as f:
         pickle.dump(train_graphs, f)
     with open(val_path, 'wb') as f:
@@ -215,6 +178,5 @@ if __name__ == "__main__":
     print(f"Train: {len(train_graphs)} sample -> {train_path}")
     print(f"Val:   {len(val_graphs)} sample -> {val_path}")
 
-    # Istatistikler
     print_dataset_stats(train_graphs, "TRAIN")
     print_dataset_stats(val_graphs, "VALIDATION")

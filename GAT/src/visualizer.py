@@ -1,16 +1,3 @@
-"""
-Genel animasyon ve gorsellestirme modulu.
-Tum fazlarda kullanilacak tek bir arac.
-
-Kullanim:
-  viz = Visualizer(env, tau=0.2, dmin=0.2)
-  viz.add_robot_trajectory(p_traj, v_traj, label="Robot 1")
-  viz.add_robot_trajectory(p_traj2, v_traj2, label="Robot 2")   # coklu robot
-  viz.add_planned_trajectories(plans)                            # MPC planlari
-  viz.add_binary_decisions(binaries, obs_idx=0)                  # binary kararlar
-  viz.show()                                                     # interaktif animasyon
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -24,30 +11,15 @@ COLORS = ['tab:blue', 'tab:red', 'tab:green', 'tab:orange', 'tab:purple',
 
 class Visualizer:
     def __init__(self, env, tau, dmin=0.2):
-        """
-        Args:
-            env: Environment nesnesi
-            tau: sampling period (s)
-            dmin: robot guvenli yaricap (m)
-        """
         self.env = env
         self.tau = tau
         self.dmin = dmin
 
-        # Veri katmanlari — her biri opsiyonel
         self.robot_data = []          # list of {p, v, label, color}
         self.planned_trajs = {}       # robot_idx -> list of planned trajectories
         self.binary_data = []         # list of {binaries, obs_idx, label}
 
     def add_robot_trajectory(self, p_traj, v_traj, label=None, color=None):
-        """Bir robotun gercek trajectory'sini ekle.
-
-        Args:
-            p_traj: pozisyon gecmisi, shape (T+1, 2)
-            v_traj: hiz gecmisi, shape (T+1, 2)
-            label: grafik etiketi (None ise otomatik)
-            color: renk (None ise otomatik)
-        """
         idx = len(self.robot_data)
         if label is None:
             label = f"Robot {idx + 1}"
@@ -61,22 +33,9 @@ class Visualizer:
         })
 
     def add_planned_trajectories(self, plans, robot_idx=0):
-        """MPC planlanan trajectory listesini ekle.
-
-        Args:
-            plans: list of p_traj arrays (her MPC adimindaki plan)
-            robot_idx: hangi robota ait
-        """
         self.planned_trajs[robot_idx] = plans
 
     def add_binary_decisions(self, binaries, obs_idx=0, label=None):
-        """Binary karar verisini ekle.
-
-        Args:
-            binaries: shape (n_obs, H, 4) veya (H, 4)
-            obs_idx: hangi engel icin gosterilecek
-            label: grafik etiketi
-        """
         if binaries.ndim == 3:
             b = binaries[obs_idx]
         else:
@@ -86,7 +45,6 @@ class Visualizer:
         self.binary_data.append({'b': b, 'label': label})
 
     def show(self):
-        """Interaktif animasyonu goster."""
         if not self.robot_data:
             raise ValueError("En az bir robot trajectory'si ekleyin.")
 
@@ -94,12 +52,10 @@ class Visualizer:
         n_frames = max(len(rd['p']) for rd in self.robot_data)
         time_all = np.arange(n_frames) * self.tau
 
-        # Hangi paneller lazim?
         has_speed = True
         has_plans = bool(self.planned_trajs)
         has_binary = bool(self.binary_data)
 
-        # Panel sayisi: trajectory + speed + (binary varsa)
         n_panels = 2 + (1 if has_binary else 0)
 
         state = {'frame': 0, 'playing': True}
@@ -116,7 +72,6 @@ class Visualizer:
         ax_speed = axes[1]
         ax_bin = axes[2] if has_binary else None
 
-        # ====== Panel 1: Trajectory ======
         px_min, px_max, py_min, py_max = self.env.bounds
         ax_traj.set_xlim(px_min - 0.2, px_max + 0.2)
         ax_traj.set_ylim(py_min - 0.2, py_max + 0.2)
@@ -126,13 +81,11 @@ class Visualizer:
         ax_traj.set_ylabel('y (m)')
         ax_traj.set_title('Trajectory')
 
-        # Sinirlar
         border = patches.Rectangle(
             (px_min, py_min), px_max - px_min, py_max - py_min,
             linewidth=2, edgecolor='black', facecolor='none', linestyle='--')
         ax_traj.add_patch(border)
 
-        # Engeller
         for obs in self.env.obstacles:
             w = 2 * obs.half_length
             h = 2 * obs.half_width
@@ -146,33 +99,27 @@ class Visualizer:
             rect.set_transform(t)
             ax_traj.add_patch(rect)
 
-        # Her robot icin: hedef, soluk trajectory, trail, circle
         robot_artists = []
         for i, rd in enumerate(self.robot_data):
             color = rd['color']
             p = rd['p']
 
-            # Hedef (env.robots varsa)
             if i < len(self.env.robots):
                 goal = self.env.robots[i].goal
                 ax_traj.plot(*goal, '*', color=color, markersize=15,
                              markeredgecolor='black', markeredgewidth=0.5,
                              zorder=5)
 
-            # Soluk tam trajectory
             ax_traj.plot(p[:, 0], p[:, 1], '-', color=color,
                          alpha=0.15, linewidth=1)
 
-            # Trail (animasyonla dolan)
             trail, = ax_traj.plot([], [], '-o', color=color, markersize=2,
                                   linewidth=2, alpha=0.5, label=rd['label'])
 
-            # Robot circle
             circle = patches.Circle((0, 0), self.dmin, fill=False,
                                      edgecolor=color, linewidth=2)
             ax_traj.add_patch(circle)
 
-            # Planlanan trajectory (MPC)
             plan_line = None
             if i in self.planned_trajs:
                 plan_line, = ax_traj.plot([], [], '--', color=color,
@@ -191,7 +138,6 @@ class Visualizer:
             fontsize=9, verticalalignment='top',
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
-        # ====== Panel 2: Speed profile ======
         all_speeds = []
         speed_artists = []
         for rd in self.robot_data:
@@ -218,7 +164,6 @@ class Visualizer:
             speed_artists.append({'line': line, 'marker': marker})
         ax_speed.legend(loc='upper right', fontsize=8)
 
-        # ====== Panel 3: Binary decisions (opsiyonel) ======
         bin_artists = []
         if ax_bin and self.binary_data:
             dir_labels = ['right', 'top', 'left', 'bottom']
@@ -242,11 +187,9 @@ class Visualizer:
                 bin_artists.append(line)
             ax_bin.legend(loc='upper right', fontsize=8)
 
-        # ====== Slider ======
         slider = Slider(ax_slider, 'Step', 0, n_frames - 1, valinit=0,
                         valstep=1, color='tab:blue', alpha=0.5)
 
-        # ====== Butonlar ======
         ax_play = fig.add_axes([0.35, 0.01, 0.08, 0.04])
         ax_prev = fig.add_axes([0.44, 0.01, 0.05, 0.04])
         ax_next = fig.add_axes([0.50, 0.01, 0.05, 0.04])
@@ -263,7 +206,6 @@ class Visualizer:
 
             info_lines = [f't = {frame * self.tau:.1f}s']
 
-            # Her robot icin guncelle
             for i, ra in enumerate(robot_artists):
                 p = ra['p']
                 f = min(frame, len(p) - 1)
@@ -271,7 +213,6 @@ class Visualizer:
                 ra['trail'].set_data(p[:f+1, 0], p[:f+1, 1])
                 ra['circle'].center = (p[f, 0], p[f, 1])
 
-                # Planlanan trajectory
                 if ra['plan_line'] is not None and i in self.planned_trajs:
                     plans = self.planned_trajs[i]
                     if f < len(plans):
@@ -292,7 +233,6 @@ class Visualizer:
                     f'{self.robot_data[i]["label"]}: '
                     f'v={spd[sf]:.2f} m/s')
 
-                # Hedefe mesafe
                 if i < len(self.env.robots):
                     dist = np.linalg.norm(p[f] - self.env.robots[i].goal)
                     info_lines[-1] += f', d={dist:.2f}m'
@@ -363,7 +303,6 @@ class Visualizer:
         plt.show()
 
 
-# --- Demo: onceki MPC senaryosunu Visualizer ile goster ---
 if __name__ == "__main__":
     from environment import Environment
     from single_robot_micp import solve_single_robot_micp

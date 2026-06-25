@@ -1,18 +1,3 @@
-"""
-Faz 6.1-6.2: GAT ile binary tahmin et, kalan QP'yi coz.
-
-Framework'un online pipeline'i:
-  1. Senaryo bilgisinden graph olustur
-  2. GAT ile binary degiskenleri tahmin et (cok hizli, ~ms)
-  3. Binary'leri sabitle, kalan convex QP'yi GUROBI ile coz (cok hizli, ~ms)
-  4. Sonuc: trajectory
-
-Neden hizli?
-  MICP = NP-hard (binary + continuous, branch-and-bound)
-  QP   = polynomial (sadece continuous, interior-point)
-  GAT binary'leri tahmin edince MICP → QP donusumu bedava!
-"""
-
 import os
 import time
 import pickle
@@ -26,34 +11,14 @@ from train_gat import graph_to_model_input, compute_normalization
 
 
 def _enforce_sum_constraint(probs):
-    """Post-processing: b1+b2+b3+b4 <= 3 kisitini zorla.
-
-    MICP'de her zaman adiminda 4 binary'nin toplami <= 3 olmali,
-    yani en az 1 tanesi 0 (aktif kisit) olmali.
-    Yoksa "robot engelin hem saginda hem solunda hem ustunde hem altinda ol"
-    denmis olur — imkansiz!
-
-    Yontem:
-      1. Threshold 0.5 ile binary'ye cevir
-      2. Eger 4'u de 0 ise → en yuksek olasilikli yonu 1 yap (en az emin oldugu kisiti gevset)
-      3. Eger toplam > 3 ise zaten ok (en az 1 aktif)
-
-    Args:
-        probs: (H, 4) float — sigmoid olasililiklari
-
-    Returns:
-        binaries: (H, 4) int — duzeltilmis binary'ler
-    """
     binaries = (probs > 0.5).astype(int)
 
     for k in range(binaries.shape[0]):
         row = binaries[k]
         if row.sum() > 3:
-            # 4'u de 1 → en dusuk olasilikli yonu 0 yap (en emin oldugu kisiti aktif birak)
             worst = np.argmin(probs[k])
             row[worst] = 0
         elif row.sum() == 0:
-            # Hepsi 0 → en yuksek olasilikli yonu 1 yap (en az emin oldugu kisiti gevset)
             best = np.argmax(probs[k])
             row[best] = 1
 
@@ -61,7 +26,6 @@ def _enforce_sum_constraint(probs):
 
 
 def load_model(model_dir=None, device='cpu'):
-    """Egitilmis GAT modelini ve norm stats'i yukle."""
     if model_dir is None:
         model_dir = os.path.join(os.path.dirname(__file__), '..', 'models')
 
@@ -81,17 +45,6 @@ def load_model(model_dir=None, device='cpu'):
 
 @torch.no_grad()
 def predict_binaries(model, graph, norm_stats, device='cpu'):
-    """GAT ile binary degiskenleri tahmin et.
-
-    Args:
-        model: egitilmis GATBinaryPredictor
-        graph: collect_data.sample_to_graph() ciktisi
-        norm_stats: normalization istatistikleri
-
-    Returns:
-        b_obs_pred: dict, (robot_i, obs_o) -> (H, 4) binary array
-        b_rob_pred: dict, (robot_i, robot_j) -> (H, 4) binary array
-    """
     inp = graph_to_model_input(graph, device, norm_stats)
 
     logits_ro, logits_rr = model(
@@ -99,7 +52,6 @@ def predict_binaries(model, graph, norm_stats, device='cpu'):
         inp['edge_index_ro'], inp['edge_index_rr']
     )
 
-    # Sigmoid olasiliklarini al
     probs_ro = torch.sigmoid(logits_ro).cpu().numpy()  # (E_ro, H*4)
     probs_rr = torch.sigmoid(logits_rr).cpu().numpy()  # (E_rr, H*4)
 
@@ -132,27 +84,6 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
                                   b_obs_fixed, b_rob_fixed, robot_edges,
                                   M=100.0, w_pt=10.0, w_p=1.0, w_u=1.0,
                                   soft_penalty=1000.0):
-    """Binary'ler sabitlenmis QP'yi coz (her zaman soft constraints ile).
-
-    Bu fonksiyon multi_robot_micp ile ayni, ama binary degiskenler
-    GUROBI'nin karar vermesi yerine GAT'in tahmini ile sabitlenmis.
-    Dolayisiyla problem artik MICP degil, sadece QP (convex).
-
-    Her zaman soft constraints kullaniyoruz cunku:
-      - GAT'in tahmini %100 dogru degil
-      - Yanlis tahmin → infeasible QP → tekrar cozme suresi
-      - Soft ile tek seferde cozmek daha hizli
-      - Slack cezasi yuksek (1000) → mumkunse kisitlara uyar, mecbursa az gevsetir
-
-    Args:
-        b_obs_fixed: dict, (robot_i, obs_o) -> (H, 4) int array
-        b_rob_fixed: dict, (robot_i, robot_j) -> (H, 4) int array
-        robot_edges: list of (i, j) tuples
-        soft_penalty: slack degiskenlerinin ceza agirligi
-
-    Returns:
-        p_trajs, v_trajs, u_trajs, total_slack
-    """
     NR = len(robots_p)
     n_obs = len(obstacles)
     px_min, px_max, py_min, py_max = bounds
@@ -160,7 +91,6 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
     model = gp.Model("qp_fixed_binary")
     model.setParam('OutputFlag', 0)
 
-    # --- Surekli degiskenler (MICP ile ayni) ---
     p = {}
     v = {}
     u = {}
@@ -171,9 +101,6 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
         v[i] = model.addMVar((H + 1, 2), lb=-vmax, ub=vmax, name=f"v_{i}")
         u[i] = model.addMVar((H, 2), lb=-amax, ub=amax, name=f"u_{i}")
 
-    # --- Slack degiskenleri (her zaman aktif) ---
-    # Slack = kisiti ne kadar gevsettigimiz. Ceza yuksek oldugu icin
-    # optimizer mumkun oldugunca slack=0 tutar, ama mecbursa kullanir.
     slack_cost = 0
     s_obs = {}
     for i in range(NR):
@@ -186,7 +113,6 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
         s_rob[i, j] = model.addMVar((H, 4), lb=0, name=f"s_rob_{i}_{j}")
         slack_cost += soft_penalty * s_rob[i, j].sum()
 
-    # === KISITLAR ===
     for i in range(NR):
         # Baslangic durumu
         model.addConstr(p[i][0, :] == robots_p[i])
@@ -200,19 +126,16 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
             model.addConstr(
                 v[i][k+1, :] == v[i][k, :] + tau * u[i][k, :])
 
-        # Robot-engel collision avoidance (binary'ler sabit!)
         for o_idx, obs in enumerate(obstacles):
             ca = np.cos(obs.angle)
             sa = np.sin(obs.angle)
             ox, oy = obs.center
             L = obs.half_length
             W = obs.half_width
-            b = b_obs_fixed[i, o_idx]  # (H, 4) sabit integer
+            b = b_obs_fixed[i, o_idx]
 
             for k in range(H):
                 pk = k + 1
-                # Sadece b=0 olan yonlerin kisiti AKTIF
-                # b=1 olan yonler zaten M ile relaxed
                 rhs_vals = [L + dmin, W + dmin, L + dmin, W + dmin]
                 lhs_exprs = [
                     ca * (p[i][pk, 0] - ox) + sa * (p[i][pk, 1] - oy),
@@ -224,9 +147,8 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
                     rhs = rhs_vals[m] - M * float(b[k, m])
                     model.addConstr(lhs_exprs[m] >= rhs - s_obs[i, o_idx][k, m])
 
-    # Robot-robot collision avoidance (binary'ler sabit!)
     for (i, j) in robot_edges:
-        b = b_rob_fixed[i, j]  # (H, 4) sabit integer
+        b = b_rob_fixed[i, j]
         for k in range(H):
             pk = k + 1
             lhs_exprs = [
@@ -239,7 +161,6 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
                 rhs = 2 * dmin - M * float(b[k, m])
                 model.addConstr(lhs_exprs[m] >= rhs - s_rob[i, j][k, m])
 
-    # === AMAC FONKSIYONU ===
     obj = 0
     for i in range(NR):
         p_err_T = p[i][H, :] - robots_goal[i]
@@ -271,18 +192,15 @@ def solve_qp_with_fixed_binaries(robots_p, robots_v, robots_goal,
     return p_trajs, v_trajs, u_trajs, total_slack
 
 
-# --- Demo: tek bir senaryo uzerinde GAT+QP vs MICP karsilastirmasi ---
 if __name__ == "__main__":
     from scenario_generator import generate_scenario
     from multi_robot_micp import solve_multi_robot_micp
     from collect_data import sample_to_graph, refine_obs_binaries, refine_rob_binaries
 
-    # Parametreler
     H, tau = 15, 0.2
     vmax, amax, dmin, dprox = 0.5, 0.5, 0.2, 5.0
     bounds = (-4.0, 4.0, -4.0, 4.0)
 
-    # Rastgele senaryo
     rng = np.random.RandomState(100)
     env = generate_scenario(3, 2, bounds, dmin, rng)
     NR = len(env.robots)
@@ -294,7 +212,6 @@ if __name__ == "__main__":
     for i in range(NR):
         print(f"  R{i}: {robots_p[i]} -> {robots_goal[i]}")
 
-    # --- 1) MICP (ground truth) ---
     print("\n--- MICP (GUROBI) ---")
     t0 = time.time()
     p_micp, v_micp, u_micp, edges, b_obs_gt, b_rob_gt = \
@@ -305,12 +222,9 @@ if __name__ == "__main__":
     print(f"  Sure: {t_micp*1000:.1f} ms")
     print(f"  Edges: {edges}")
 
-    # --- 2) GAT + QP ---
     print("\n--- GAT + QP ---")
     model, norm_stats = load_model()
 
-    # Graph olustur (ayni formatta)
-    # Oncelikle sample_to_graph icin gerekli format
     obstacle_data = []
     for obs in env.obstacles:
         obstacle_data.append({
@@ -324,7 +238,7 @@ if __name__ == "__main__":
         for o in range(len(env.obstacles)):
             b_obs_list.append({
                 'robot': i, 'obstacle': o,
-                'binaries': np.zeros((H, 4)),  # dummy — sadece graph yapisi icin
+                'binaries': np.zeros((H, 4)),
             })
     b_rob_list = []
     for (i, j) in edges:
@@ -345,13 +259,11 @@ if __name__ == "__main__":
     }
     graph = sample_to_graph(sample)
 
-    # GAT tahmin
     t0 = time.time()
     b_obs_pred, b_rob_pred = predict_binaries(model, graph, norm_stats)
     t_gat = time.time() - t0
     print(f"  GAT inference: {t_gat*1000:.1f} ms")
 
-    # QP coz
     t0 = time.time()
     result = solve_qp_with_fixed_binaries(
         robots_p, robots_v, robots_goal,
@@ -370,7 +282,6 @@ if __name__ == "__main__":
         if slack > 0:
             print(f"  Slack kullanildi: {slack:.4f} (soft constraints)")
 
-    # --- Binary karsilastirmasi ---
     print("\n--- Binary Karsilastirmasi ---")
     ro_match, ro_total = 0, 0
     for (i, o) in b_obs_pred:

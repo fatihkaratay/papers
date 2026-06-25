@@ -1,25 +1,3 @@
-"""
-Faz 5.7-5.8: GAT egitim ve validation.
-
-Dataset'i yukle, modeli egit, validation accuracy olc.
-
-Egitim dongusu:
-  Her epoch:
-    1) Her sample icin:
-       - Graph'i model input formatina cevir
-       - Forward pass: logits_ro, logits_rr = model(...)
-       - Loss: BCEWithLogitsLoss(logits, labels)
-       - Backward pass: gradients hesapla
-       - Optimizer step: agirliklari guncelle
-    2) Validation accuracy olc
-    3) Sonuclari yazdir
-
-Neden BCEWithLogitsLoss?
-  - Binary cross-entropy: her binary icin P(b=1) tahmini ile gercek degeri karsilastir
-  - "WithLogits": sigmoid icerde uygulanir, numerik olarak daha stabil
-  - Loss = -[y*log(sigmoid(x)) + (1-y)*log(1-sigmoid(x))]
-"""
-
 import os
 import pickle
 import time
@@ -30,26 +8,17 @@ from gat_model import GATBinaryPredictor
 
 
 def load_dataset(path):
-    """Pickle dataset yukle."""
     with open(path, 'rb') as f:
         return pickle.load(f)
 
 
 def compute_normalization(dataset):
-    """Train dataset'inden feature mean/std hesapla.
-
-    Neden normalize ediyoruz?
-      Robot features: px, py ~ [-4, 4],  gx, gy ~ [-4, 4]
-      Obstacle features: cx, cy ~ [-4, 4],  angle ~ [0, 2pi],  L, W ~ [0.2, 1.0]
-      Farkli olceklerdeki feature'lar gradient'leri bozar.
-      Normalize edince hepsi ~N(0,1) olur, egitim daha stabil ve hizli.
-    """
     all_robot = np.concatenate([g['node_feat_robot'] for g in dataset], axis=0)
     all_obs = np.concatenate([g['node_feat_obstacle'] for g in dataset], axis=0)
 
     stats = {
         'robot_mean': all_robot.mean(axis=0),
-        'robot_std': all_robot.std(axis=0) + 1e-8,  # sifira bolmeyi onle
+        'robot_std': all_robot.std(axis=0) + 1e-8,
         'obs_mean': all_obs.mean(axis=0),
         'obs_std': all_obs.std(axis=0) + 1e-8,
     }
@@ -57,12 +26,6 @@ def compute_normalization(dataset):
 
 
 def graph_to_model_input(graph, device='cpu', norm_stats=None):
-    """Dataset'teki graph dict'ini model input formatina cevir.
-
-    Onemli: Dataset'te obstacle edge index'leri 0..NO-1 arasi.
-    Model'de ise node indexleme: robot 0..NR-1, obstacle NR..NR+NO-1.
-    Bu yuzden obstacle index'lerine NR offset ekliyoruz.
-    """
     NR = graph['node_feat_robot'].shape[0]
     NO = graph['node_feat_obstacle'].shape[0]
     H = graph['H']
@@ -70,7 +33,6 @@ def graph_to_model_input(graph, device='cpu', norm_stats=None):
     robot_feat = graph['node_feat_robot'].astype(np.float32)
     obs_feat = graph['node_feat_obstacle'].astype(np.float32)
 
-    # Normalization: (x - mean) / std
     if norm_stats is not None:
         robot_feat = (robot_feat - norm_stats['robot_mean']) / norm_stats['robot_std']
         obs_feat = (obs_feat - norm_stats['obs_mean']) / norm_stats['obs_std']
@@ -78,23 +40,16 @@ def graph_to_model_input(graph, device='cpu', norm_stats=None):
     x_robot = torch.tensor(robot_feat, dtype=torch.float32, device=device)
     x_obstacle = torch.tensor(obs_feat, dtype=torch.float32, device=device)
 
-    # --- RO edge'leri: robot -> obstacle ---
-    # Dataset'te: src = robot index (0..NR-1), dst = obstacle index (0..NO-1)
-    # Model'de:   src = robot index (0..NR-1), dst = obstacle index (NR..NR+NO-1)
-    ro_src = graph['edge_index_RO'][0]  # robot indices, zaten dogru
-    ro_dst = graph['edge_index_RO'][1] + NR  # obstacle'a NR offset ekle
+    ro_src = graph['edge_index_RO'][0]
+    ro_dst = graph['edge_index_RO'][1] + NR
     edge_index_ro = torch.tensor(np.array([ro_src, ro_dst]), dtype=torch.long, device=device)
 
-    # --- RR edge'leri: robot -> robot ---
-    # Index'ler zaten 0..NR-1, offset gerekmez
     edge_index_rr = torch.tensor(graph['edge_index_RR'], dtype=torch.long, device=device)
 
-    # --- OR edge'leri: obstacle -> robot (bilgi akisi) ---
     or_src = graph['edge_index_OR'][0] + NR  # obstacle offset
-    or_dst = graph['edge_index_OR'][1]  # robot, offset yok
+    or_dst = graph['edge_index_OR'][1]  # robot, offset 
     edge_index_or = torch.tensor(np.array([or_src, or_dst]), dtype=torch.long, device=device)
 
-    # --- OO edge'leri: obstacle -> obstacle ---
     if graph['edge_index_OO'].shape[1] > 0:
         oo_src = graph['edge_index_OO'][0] + NR
         oo_dst = graph['edge_index_OO'][1] + NR
@@ -102,11 +57,9 @@ def graph_to_model_input(graph, device='cpu', norm_stats=None):
     else:
         edge_index_oo = torch.zeros((2, 0), dtype=torch.long, device=device)
 
-    # Tum edge'leri birlestir (encoder icin)
     edge_index_all = torch.cat([edge_index_ro, edge_index_rr,
                                  edge_index_or, edge_index_oo], dim=1)
 
-    # --- Labels ---
     labels_ro = torch.tensor(graph['edge_labels_RO'], dtype=torch.float32, device=device)
     labels_rr = torch.tensor(graph['edge_labels_RR'], dtype=torch.float32, device=device)
 
@@ -122,7 +75,6 @@ def graph_to_model_input(graph, device='cpu', norm_stats=None):
 
 
 def compute_accuracy(logits, labels):
-    """Binary accuracy: sigmoid(logit) > 0.5 → predicted 1, else 0."""
     if labels.numel() == 0:
         return float('nan'), 0
     preds = (torch.sigmoid(logits) > 0.5).float()
@@ -132,7 +84,6 @@ def compute_accuracy(logits, labels):
 
 
 def train_one_epoch(model, dataset, optimizer, criterion, device='cpu', norm_stats=None):
-    """Bir epoch egitim."""
     model.train()
     total_loss = 0
     ro_correct, ro_total = 0, 0
@@ -147,7 +98,6 @@ def train_one_epoch(model, dataset, optimizer, criterion, device='cpu', norm_sta
             inp['edge_index_ro'], inp['edge_index_rr']
         )
 
-        # Loss: RO + RR
         loss_ro = criterion(logits_ro, inp['labels_ro'])
         if inp['labels_rr'].numel() > 0:
             loss_rr = criterion(logits_rr, inp['labels_rr'])
@@ -160,7 +110,6 @@ def train_one_epoch(model, dataset, optimizer, criterion, device='cpu', norm_sta
 
         total_loss += loss.item()
 
-        # Accuracy
         acc_ro, n_ro = compute_accuracy(logits_ro, inp['labels_ro'])
         ro_correct += acc_ro * n_ro
         ro_total += n_ro
@@ -179,7 +128,6 @@ def train_one_epoch(model, dataset, optimizer, criterion, device='cpu', norm_sta
 
 @torch.no_grad()
 def evaluate(model, dataset, criterion, device='cpu', norm_stats=None):
-    """Validation seti uzerinde evaluation."""
     model.eval()
     total_loss = 0
     ro_correct, ro_total = 0, 0
@@ -220,9 +168,7 @@ def evaluate(model, dataset, criterion, device='cpu', norm_stats=None):
 
 def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
           H=15, ff_hidden=128, dropout=0.0, device='cpu'):
-    """Ana egitim fonksiyonu."""
-
-    # Dataset yukle
+    
     data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
     train_data = load_dataset(os.path.join(data_dir, 'dataset_train.pkl'))
     val_data = load_dataset(os.path.join(data_dir, 'dataset_val.pkl'))
@@ -246,15 +192,11 @@ def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model: {total_params} parametre")
 
-    # Optimizer, scheduler ve loss
+    # Optimizer, scheduler, loss
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    # Her 20 epoch'ta lr'yi 0.5x ile carp
-    # Neden? Baslangicta buyuk adimlarla hizli ogrensin,
-    # sonra kucuk adimlarla ince ayar yapsin (overfitting'i azaltir)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
     criterion = nn.BCEWithLogitsLoss()
 
-    # Egitim dongusu
     print(f"\nEgitim: {n_epochs} epoch, lr={lr}")
     print(f"{'Epoch':>5} {'T_Loss':>8} {'T_RO%':>7} {'T_RR%':>7} "
           f"{'V_Loss':>8} {'V_RO%':>7} {'V_RR%':>7} {'Time':>6}")
@@ -279,8 +221,8 @@ def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
 
         dt = time.time() - t0
 
-        # Best model kaydet
-        v_acc_avg = v_ro  # RO accuracy'yi ana metrik olarak kullan
+        # Best model
+        v_acc_avg = v_ro
         if v_acc_avg > best_val_acc:
             best_val_acc = v_acc_avg
             torch.save(model.state_dict(), best_path)
@@ -297,7 +239,6 @@ def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
     print(f"\nEn iyi val RO accuracy: {100*best_val_acc:.1f}%")
     print(f"Model kaydedildi: {best_path}")
 
-    # Norm stats'i de kaydet (inference'ta ayni normalization gerekecek)
     norm_path = os.path.join(model_dir, 'norm_stats.pkl')
     with open(norm_path, 'wb') as f:
         pickle.dump(norm_stats, f)

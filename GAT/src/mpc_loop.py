@@ -1,14 +1,3 @@
-"""
-Faz 2.6: Receding Horizon (MPC) loop.
-
-Her adimda:
-  1. Mevcut durumu al: p(t), v(t)
-  2. H adimlik MICP coz
-  3. Sadece ILK kontrol inputunu uygula: u(0)
-  4. Robot bir adim ilerler
-  5. Hedefe ulasana kadar tekrarla
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -20,22 +9,6 @@ from single_robot_micp import solve_single_robot_micp
 def run_mpc(env, robot_idx, H, tau, vmax, amax, dmin,
             max_steps=100, goal_tol=0.15, M=100.0,
             w_pt=10.0, w_p=1.0, w_u=1.0):
-    """MPC loop: her adimda MICP coz, ilk inputu uygula.
-
-    Args:
-        env: Environment nesnesi (obstacles ve robots iceriyor)
-        robot_idx: hangi robot
-        H: horizon length
-        tau: sampling period
-        max_steps: maksimum adim sayisi
-        goal_tol: hedefe bu kadar yaklasinca dur
-
-    Returns:
-        p_history: gercek pozisyon gecmisi, shape (T+1, 2)
-        v_history: gercek hiz gecmisi, shape (T+1, 2)
-        u_history: uygulanan kontrol inputlari, shape (T, 2)
-        planned_trajectories: her adimda planlanan trajectory listesi
-    """
     robot = env.robots[robot_idx]
     p = robot.position.copy()
     v = robot.velocity.copy()
@@ -47,13 +20,11 @@ def run_mpc(env, robot_idx, H, tau, vmax, amax, dmin,
     planned_trajectories = []
 
     for step in range(max_steps):
-        # Hedefe ulastik mi?
         dist = np.linalg.norm(p - p_goal)
         if dist < goal_tol:
             print(f"  Goal reached at step {step}! (dist={dist:.3f}m)")
             break
 
-        # MICP coz
         try:
             p_traj, v_traj, u_traj, _ = solve_single_robot_micp(
                 p, v, p_goal, env.obstacles, H, tau,
@@ -65,11 +36,9 @@ def run_mpc(env, robot_idx, H, tau, vmax, amax, dmin,
 
         planned_trajectories.append(p_traj.copy())
 
-        # Sadece ILK kontrol inputunu uygula
         u0 = u_traj[0]
         u_history.append(u0.copy())
 
-        # Robot bir adim ilerle (double-integrator)
         p = p + tau * v + 0.5 * tau**2 * u0
         v = v + tau * u0
 
@@ -85,7 +54,6 @@ def run_mpc(env, robot_idx, H, tau, vmax, amax, dmin,
 
 def animate_mpc(env, p_history, v_history, u_history,
                 planned_trajectories, tau, dmin):
-    """MPC sonucunu interaktif animasyon olarak goster."""
     n_frames = len(p_history)
     time_all = np.arange(n_frames) * tau
     speeds = np.linalg.norm(v_history, axis=1)
@@ -99,7 +67,6 @@ def animate_mpc(env, p_history, v_history, u_history,
     ax2 = fig.add_subplot(gs[0, 1])
     ax_slider = fig.add_subplot(gs[1, :])
 
-    # --- Panel 1: Ortam + robot ---
     px_min, px_max, py_min, py_max = env.bounds
     ax1.set_xlim(px_min - 0.2, px_max + 0.2)
     ax1.set_ylim(py_min - 0.2, py_max + 0.2)
@@ -131,13 +98,11 @@ def animate_mpc(env, p_history, v_history, u_history,
     ax1.plot(*goal, '*', color='tab:blue', markersize=15,
              markeredgecolor='black', markeredgewidth=0.5, zorder=5)
 
-    # Tam gercek trajectory (soluk)
     ax1.plot(p_history[:, 0], p_history[:, 1], '-', color='tab:blue',
              alpha=0.15, linewidth=1)
 
     trail_line, = ax1.plot([], [], '-o', color='tab:blue', markersize=3,
                            linewidth=2, alpha=0.6)
-    # Planlanan trajectory (her adimda guncellenen, soluk kirmizi)
     plan_line, = ax1.plot([], [], '--', color='tab:red', linewidth=1.5,
                           alpha=0.5, label='planned')
     robot_circle = patches.Circle((0, 0), dmin, fill=False,
@@ -148,7 +113,6 @@ def animate_mpc(env, p_history, v_history, u_history,
                          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
     ax1.legend(loc='upper right')
 
-    # --- Panel 2: Speed profile ---
     ax2.set_xlim(0, time_all[-1] + tau)
     ax2.set_ylim(0, max(speeds) * 1.15 + 0.05)
     ax2.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5, label='vmax=0.5')
@@ -160,11 +124,9 @@ def animate_mpc(env, p_history, v_history, u_history,
     speed_line, = ax2.plot([], [], '-o', color='tab:blue', markersize=3)
     speed_marker, = ax2.plot([], [], 'o', color='red', markersize=8, zorder=5)
 
-    # --- Slider ---
     slider = Slider(ax_slider, 'Step', 0, n_frames - 1, valinit=0,
                     valstep=1, color='tab:blue', alpha=0.5)
 
-    # --- Butonlar ---
     ax_play = fig.add_axes([0.35, 0.01, 0.08, 0.04])
     ax_prev = fig.add_axes([0.44, 0.01, 0.05, 0.04])
     ax_next = fig.add_axes([0.50, 0.01, 0.05, 0.04])
@@ -182,7 +144,6 @@ def animate_mpc(env, p_history, v_history, u_history,
         trail_line.set_data(p_history[:frame+1, 0], p_history[:frame+1, 1])
         robot_circle.center = (p_history[frame, 0], p_history[frame, 1])
 
-        # Planlanan trajectory goster (o adimda MICP'nin plani)
         if frame < len(planned_trajectories):
             pt = planned_trajectories[frame]
             plan_line.set_data(pt[:, 0], pt[:, 1])
