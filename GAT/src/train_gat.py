@@ -35,7 +35,28 @@ def load_dataset(path):
         return pickle.load(f)
 
 
-def graph_to_model_input(graph, device='cpu'):
+def compute_normalization(dataset):
+    """Train dataset'inden feature mean/std hesapla.
+
+    Neden normalize ediyoruz?
+      Robot features: px, py ~ [-4, 4],  gx, gy ~ [-4, 4]
+      Obstacle features: cx, cy ~ [-4, 4],  angle ~ [0, 2pi],  L, W ~ [0.2, 1.0]
+      Farkli olceklerdeki feature'lar gradient'leri bozar.
+      Normalize edince hepsi ~N(0,1) olur, egitim daha stabil ve hizli.
+    """
+    all_robot = np.concatenate([g['node_feat_robot'] for g in dataset], axis=0)
+    all_obs = np.concatenate([g['node_feat_obstacle'] for g in dataset], axis=0)
+
+    stats = {
+        'robot_mean': all_robot.mean(axis=0),
+        'robot_std': all_robot.std(axis=0) + 1e-8,  # sifira bolmeyi onle
+        'obs_mean': all_obs.mean(axis=0),
+        'obs_std': all_obs.std(axis=0) + 1e-8,
+    }
+    return stats
+
+
+def graph_to_model_input(graph, device='cpu', norm_stats=None):
     """Dataset'teki graph dict'ini model input formatina cevir.
 
     Onemli: Dataset'te obstacle edge index'leri 0..NO-1 arasi.
@@ -46,8 +67,16 @@ def graph_to_model_input(graph, device='cpu'):
     NO = graph['node_feat_obstacle'].shape[0]
     H = graph['H']
 
-    x_robot = torch.tensor(graph['node_feat_robot'], dtype=torch.float32, device=device)
-    x_obstacle = torch.tensor(graph['node_feat_obstacle'], dtype=torch.float32, device=device)
+    robot_feat = graph['node_feat_robot'].astype(np.float32)
+    obs_feat = graph['node_feat_obstacle'].astype(np.float32)
+
+    # Normalization: (x - mean) / std
+    if norm_stats is not None:
+        robot_feat = (robot_feat - norm_stats['robot_mean']) / norm_stats['robot_std']
+        obs_feat = (obs_feat - norm_stats['obs_mean']) / norm_stats['obs_std']
+
+    x_robot = torch.tensor(robot_feat, dtype=torch.float32, device=device)
+    x_obstacle = torch.tensor(obs_feat, dtype=torch.float32, device=device)
 
     # --- RO edge'leri: robot -> obstacle ---
     # Dataset'te: src = robot index (0..NR-1), dst = obstacle index (0..NO-1)
@@ -102,7 +131,7 @@ def compute_accuracy(logits, labels):
     return correct / total, total
 
 
-def train_one_epoch(model, dataset, optimizer, criterion, device='cpu'):
+def train_one_epoch(model, dataset, optimizer, criterion, device='cpu', norm_stats=None):
     """Bir epoch egitim."""
     model.train()
     total_loss = 0
@@ -110,7 +139,7 @@ def train_one_epoch(model, dataset, optimizer, criterion, device='cpu'):
     rr_correct, rr_total = 0, 0
 
     for graph in dataset:
-        inp = graph_to_model_input(graph, device)
+        inp = graph_to_model_input(graph, device, norm_stats)
         optimizer.zero_grad()
 
         logits_ro, logits_rr = model(
@@ -149,7 +178,7 @@ def train_one_epoch(model, dataset, optimizer, criterion, device='cpu'):
 
 
 @torch.no_grad()
-def evaluate(model, dataset, criterion, device='cpu'):
+def evaluate(model, dataset, criterion, device='cpu', norm_stats=None):
     """Validation seti uzerinde evaluation."""
     model.eval()
     total_loss = 0
@@ -157,7 +186,7 @@ def evaluate(model, dataset, criterion, device='cpu'):
     rr_correct, rr_total = 0, 0
 
     for graph in dataset:
-        inp = graph_to_model_input(graph, device)
+        inp = graph_to_model_input(graph, device, norm_stats)
 
         logits_ro, logits_rr = model(
             inp['x_robot'], inp['x_obstacle'], inp['edge_index_all'],
@@ -190,7 +219,7 @@ def evaluate(model, dataset, criterion, device='cpu'):
 
 
 def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
-          H=15, ff_hidden=128, device='cpu'):
+          H=15, ff_hidden=128, dropout=0.0, device='cpu'):
     """Ana egitim fonksiyonu."""
 
     # Dataset yukle
@@ -200,17 +229,29 @@ def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
 
     print(f"Dataset: {len(train_data)} train, {len(val_data)} val")
 
+    # Normalization: train set'ten mean/std hesapla
+    norm_stats = compute_normalization(train_data)
+    print(f"Normalization:")
+    print(f"  Robot mean:  {norm_stats['robot_mean']}")
+    print(f"  Robot std:   {norm_stats['robot_std']}")
+    print(f"  Obs mean:    {norm_stats['obs_mean']}")
+    print(f"  Obs std:     {norm_stats['obs_std']}")
+
     # Model
     model = GATBinaryPredictor(
         hidden_dim=hidden_dim, num_heads=num_heads, num_layers=num_layers,
-        H=H, ff_hidden=ff_hidden
+        H=H, ff_hidden=ff_hidden, dropout=dropout
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model: {total_params} parametre")
 
-    # Optimizer ve loss
+    # Optimizer, scheduler ve loss
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # Her 20 epoch'ta lr'yi 0.5x ile carp
+    # Neden? Baslangicta buyuk adimlarla hizli ogrensin,
+    # sonra kucuk adimlarla ince ayar yapsin (overfitting'i azaltir)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
     criterion = nn.BCEWithLogitsLoss()
 
     # Egitim dongusu
@@ -228,10 +269,13 @@ def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
         t0 = time.time()
 
         # Train
-        t_loss, t_ro, t_rr = train_one_epoch(model, train_data, optimizer, criterion, device)
+        t_loss, t_ro, t_rr = train_one_epoch(model, train_data, optimizer, criterion, device, norm_stats)
 
         # Validate
-        v_loss, v_ro, v_rr = evaluate(model, val_data, criterion, device)
+        v_loss, v_ro, v_rr = evaluate(model, val_data, criterion, device, norm_stats)
+
+        # LR schedule step
+        scheduler.step()
 
         dt = time.time() - t0
 
@@ -253,8 +297,14 @@ def train(n_epochs=50, lr=1e-3, hidden_dim=64, num_heads=4, num_layers=2,
     print(f"\nEn iyi val RO accuracy: {100*best_val_acc:.1f}%")
     print(f"Model kaydedildi: {best_path}")
 
+    # Norm stats'i de kaydet (inference'ta ayni normalization gerekecek)
+    norm_path = os.path.join(model_dir, 'norm_stats.pkl')
+    with open(norm_path, 'wb') as f:
+        pickle.dump(norm_stats, f)
+    print(f"Norm stats kaydedildi: {norm_path}")
+
     return model
 
 
 if __name__ == "__main__":
-    train(n_epochs=50, lr=1e-3)
+    train(n_epochs=50, lr=1e-3, dropout=0.3)

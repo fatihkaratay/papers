@@ -148,17 +148,19 @@ class EdgeDecoder(nn.Module):
       Fiziksel anlam farkli → farkli agirliklar ogrenmeli.
     """
 
-    def __init__(self, hidden_dim=64, output_dim=60, ff_hidden=128):
+    def __init__(self, hidden_dim=64, output_dim=60, ff_hidden=128, dropout=0.0):
         """
         Args:
             hidden_dim: encoder'dan gelen node embedding boyutu
             output_dim: H * 4 (ornegin 15 * 4 = 60)
             ff_hidden:  feedforward katmanin gizli boyutu
+            dropout:    dropout orani (overfitting'i azaltir)
         """
         super().__init__()
         self.ff = nn.Sequential(
             nn.Linear(hidden_dim * 2, ff_hidden),  # [h_i || h_j] -> ff_hidden
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(ff_hidden, output_dim),       # ff_hidden -> H*4
         )
 
@@ -205,8 +207,8 @@ class GATBinaryPredictor(nn.Module):
             hidden_dim, num_heads, num_layers, dropout
         )
         output_dim = H * 4  # her edge icin H zaman adimi x 4 yon
-        self.decoder_ro = EdgeDecoder(hidden_dim, output_dim, ff_hidden)
-        self.decoder_rr = EdgeDecoder(hidden_dim, output_dim, ff_hidden)
+        self.decoder_ro = EdgeDecoder(hidden_dim, output_dim, ff_hidden, dropout)
+        self.decoder_rr = EdgeDecoder(hidden_dim, output_dim, ff_hidden, dropout)
         self.H = H
 
     def forward(self, x_robot, x_obstacle, edge_index_all,
